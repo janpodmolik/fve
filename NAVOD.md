@@ -38,17 +38,20 @@ Dělej vždy ke stejnému dni v měsíci (např. vždy 1. den v měsíci ráno).
 Klikni na **+ Nový měsíc** a potvrď období (formát `2026-07` = červenec 2026).
 
 ### 2. Opiš 4 čísla ze SEMS+ (celý dům)
-V aplikaci/portálu SEMS (GoodWe, přihlášení účtem k FVE) otevři
-**Statistiky → měsíční přehled** za minulý měsíc a opiš:
+V aplikaci SEMS+ (GoodWe, přihlášení účtem k FVE) na úvodní obrazovce sjeď
+na panel **„Sledování spotřeby"**, období přepni na **Měsíc** a vyber minulý
+(už celý uplynulý) měsíc. Všechna 4 čísla jsou na téhle jedné obrazovce:
 
-| Pole v appce | V SEMS+ se jmenuje | Co to je |
+| Pole v appce | V SEMS+ | Co to je |
 |---|---|---|
-| Výroba FVE | „Výroba" | co panely vyrobily |
-| Spotřeba domu | „Spotřeba" / „Zatížení" | co celý dům spotřeboval |
-| Přetoky do sítě | „Do sítě" / „Prodej" | co se prodalo do sítě |
-| Nákup ze sítě | „Ze sítě" / „Nákup" | co se koupilo (to je na faktuře) |
+| Výroba FVE | velké číslo uprostřed grafu **AC výroba** | co panely vyrobily |
+| Spotřeba domu | velké číslo uprostřed grafu **Spotřeba energie** | co celý dům spotřeboval |
+| Přetoky do sítě | **„Do Sítě"** (v panelu AC výroba) | co se prodalo do sítě |
+| Nákup ze sítě | **„Ze Sítě"** (v panelu Spotřeba energie) | co se koupilo (to je na faktuře) |
 
 Všechno v kWh. U každého pole je v appce ikonka **ⓘ** s nápovědou.
+Kontrola: „Z FV a baterie" = Spotřeba − Ze Sítě (appka to počítá jako
+FVE pokrytí).
 
 ### 3. Opiš 6 stavů z podružných elektroměrů
 V rozvaděči jsou 3 elektroměry CIT 372L (jeden na byt: 1.N.P, 2.N.P, 3.N.P).

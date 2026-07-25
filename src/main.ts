@@ -276,15 +276,17 @@ function render() {
 
   // Meter (SEMS) inputs
   const semsChildren: Node[] = prevInfo ? [meterGridEl(rec)] : [noPrevNote(), meterGridEl(rec)];
-  wrap.append(noPrint(card('Data ze SEMS+ (celý dům)', semsChildren, 'Z aplikace nebo portálu SEMS Portal (GoodWe). Přihlášení účtem k FVE. Hodnoty ber za daný kalendářní měsíc z měsíčního přehledu/statistik.', `
+  wrap.append(noPrint(card('Data ze SEMS+ (celý dům)', semsChildren, 'Z aplikace nebo portálu SEMS Portal (GoodWe), přihlášení účtem k FVE. Domů → panel „Sledování spotřeby“, období Měsíc — všechna 4 čísla jsou na té jedné obrazovce.', `
     <ol class="list-decimal space-y-1 pl-5">
       <li>Otevři aplikaci <strong>SEMS+</strong> (nebo semsportal.com) a přihlas se účtem k FVE.</li>
-      <li>Jdi do <strong>Statistiky → měsíční přehled</strong> a vyber měsíc, který zadáváš.</li>
-      <li>Opiš 4 čísla v kWh: <strong>Výroba</strong>, <strong>Spotřeba</strong> (Zatížení),
-        <strong>Do sítě</strong> (Prodej) a <strong>Ze sítě</strong> (Nákup).</li>
+      <li>Na úvodní obrazovce sjeď na panel <strong>„Sledování spotřeby“</strong> a období
+        přepni na <strong>Měsíc</strong> — vyber měsíc, který zadáváš (musí být už celý za tebou).</li>
+      <li>Opiš 4 čísla v kWh: celkovou <strong>AC výrobu</strong> (velké číslo uprostřed grafu),
+        celkovou <strong>Spotřebu energie</strong> (velké číslo u druhého grafu),
+        <strong>„Do Sítě“</strong> (= přetoky) a <strong>„Ze Sítě“</strong> (= nákup).</li>
     </ol>
-    <p>„Ze sítě“ by mělo zhruba odpovídat součtu VT+NT na faktuře innogy — tím si ověříš,
-    že koukáš na správný měsíc.</p>
+    <p>Kontrola, že koukáš správně: „Z FV a baterie“ = Spotřeba − Ze Sítě (to appka počítá jako
+    FVE pokrytí) a „Ze Sítě“ zhruba odpovídá VT+NT na faktuře innogy.</p>
   `)));
 
   // Submeter readings
@@ -379,22 +381,22 @@ function meterGridEl(rec: MonthlyRecord): HTMLElement {
     {
       key: 'production',
       label: 'Výroba FVE',
-      hint: 'SEMS+ → Statistiky → měsíční přehled → „Výroba“ (energie z panelů za daný měsíc).',
+      hint: 'SEMS+ → Domů → panel „Sledování spotřeby“, období přepni na Měsíc. Výroba = velké číslo uprostřed grafu „AC výroba“.',
     },
     {
       key: 'houseConsumption',
       label: 'Spotřeba domu',
-      hint: 'SEMS+ → Statistiky → měsíční přehled → „Spotřeba“ / „Zatížení“ (celková spotřeba domu za měsíc).',
+      hint: 'Tamtéž — velké číslo uprostřed grafu „Spotřeba energie“ (celková spotřeba domu za měsíc).',
     },
     {
       key: 'feedIn',
       label: 'Přetoky do sítě',
-      hint: 'SEMS+ → Statistiky → „Do sítě“ / „Prodej“ (energie odeslaná do sítě). Lze ověřit i z hlavního elektroměru, registr 2.8.0.',
+      hint: 'Tamtéž — hodnota „Do Sítě“ v panelu AC výroba. Lze ověřit i z hlavního elektroměru, registr 2.8.0.',
     },
     {
       key: 'gridPurchase',
       label: 'Nákup ze sítě',
-      hint: 'SEMS+ → Statistiky → „Ze sítě“ / „Nákup“ (energie odebraná ze sítě). Odpovídá VT+NT na faktuře innogy.',
+      hint: 'Tamtéž — hodnota „Ze Sítě“ v panelu Spotřeba energie. Odpovídá VT+NT na faktuře innogy.',
     },
   ];
   for (const f of meterFields) {
@@ -762,7 +764,8 @@ function renderHelp(): HTMLElement {
     <ol class="list-decimal space-y-1 pl-5">
       <li><strong>Založ nový měsíc</strong> (formát 2026-07 = červenec).</li>
       <li><strong>Opiš 4 čísla ze SEMS+</strong> (aplikace/portál GoodWe, přihlášení účtem k FVE):
-        Statistiky → měsíční přehled → Výroba, Spotřeba, Do sítě, Ze sítě. Vše v kWh.</li>
+        Domů → panel „Sledování spotřeby“ → období Měsíc. Opiš celkovou AC výrobu, celkovou
+        Spotřebu energie, „Do Sítě“ a „Ze Sítě“. Vše v kWh, všechno na jedné obrazovce.</li>
       <li><strong>Opiš 6 stavů z podružek</strong> — v rozvaděči jsou 3 elektroměry CIT 372L
         (jeden na byt). Tlačítkem na měřidle přepínáš displej mezi T1 (VT) a T2 (NT).
         <strong>Zadávej STAV měřidla (velké kumulativní číslo), ne spotřebu</strong> — rozdíl proti
@@ -1229,7 +1232,7 @@ function renderWizard(): HTMLElement {
   if (step === 1) {
     const box = el('div', 'space-y-3');
     box.append(
-      el('p', 'text-sm text-slate-600', `Otevři aplikaci SEMS+ (nebo semsportal.com), přihlas se účtem k FVE a v měsíčních statistikách najdi tato 4 čísla za ${periodLabel(rec.period)}. U každého pole je ⓘ s přesným místem.`),
+      el('p', 'text-sm text-slate-600', `Otevři aplikaci SEMS+ (nebo semsportal.com), na úvodní obrazovce sjeď na panel „Sledování spotřeby“, období přepni na Měsíc a vyber ${periodLabel(rec.period)}. Všechna 4 čísla jsou na té jedné obrazovce — u každého pole je ⓘ s přesným místem.`),
       meterGridEl(rec)
     );
     wrap.append(card('Data ze SEMS+ (celý dům)', [box]));
