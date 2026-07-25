@@ -1187,10 +1187,20 @@ function renderWizard(): HTMLElement {
     input.value = suggested;
     input.placeholder = 'RRRR-MM';
     input.className = 'w-44 rounded-md border border-slate-300 px-3 py-2 tabular-nums';
+    // Safari has no native month picker (falls back to a text field showing
+    // raw YYYY-MM) — echo the human-readable month name next to the input.
+    const echo = el('span', 'text-sm font-medium text-slate-700');
+    const updateEcho = () => {
+      echo.textContent = /^\d{4}-\d{2}$/.test(input.value) ? `= ${periodLabel(input.value)}` : '';
+    };
+    updateEcho();
+    input.addEventListener('input', updateEcho);
+    const inputRow = el('div', 'flex items-center gap-3');
+    inputRow.append(input, echo);
     const box = el('div', 'space-y-3 text-sm text-slate-600');
     box.append(
       el('p', '', 'Průvodce tě provede měsíčním zadáním: 4 čísla ze SEMS+, 6 stavů z podružek, kontrola a výsledek. Zabere to asi 10 minut.'),
-      el('div', 'space-y-1', [label('Které období zadáváš?'), input]),
+      el('div', 'space-y-1', [label('Které období zadáváš?'), inputRow]),
       state.records.length
         ? el('p', 'text-xs text-slate-400', `Poslední zadaný měsíc: ${periodLabel(state.records[state.records.length - 1].period)}. Odečty dělej ideálně vždy k 1. dni měsíce, ať se kryjí s měsíčními čísly ze SEMS+.`)
         : el('p', 'text-xs text-slate-400', state.baseline
