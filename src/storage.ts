@@ -15,6 +15,14 @@ export interface FlatReadings {
   offPeak: number; // T2 reading [kWh]
 }
 
+// The very first reading of the submeters — a standalone starting point
+// ("bod nula"), deliberately NOT a billed month. The oldest billed month
+// computes its consumption against it.
+export interface Baseline {
+  date: string; // 'YYYY-MM-DD' — day the readings were taken
+  readings: FlatReadings[];
+}
+
 // One monthly record = readings at the end of the period.
 export interface MonthlyRecord {
   period: string; // 'YYYY-MM'
@@ -29,19 +37,46 @@ export interface MonthlyRecord {
 export interface AppState {
   tariff: Tariff;
   agreement: Agreement;
+  baseline: Baseline | null; // null until the very first reading is taken
   records: MonthlyRecord[]; // sorted ascending by period
 }
 
 const KEY = 'fve-rozuct-v1';
 
-// Fills in defaults and migrates older data — records saved before per-month
-// tariffs existed inherit a copy of the then-global tariff.
+// '2026-06' → '2026-07-01' (fallback baseline date for migrated data).
+function firstDayOfNextMonth(period: string): string {
+  const [y, m] = period.split('-').map(Number);
+  const d = new Date(y, m, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+// Fills in defaults and migrates older data:
+// - records saved before per-month tariffs existed inherit a copy of the
+//   then-global tariff;
+// - data saved before the explicit baseline existed stored the baseline as the
+//   oldest "month" with zeroed SEMS numbers — convert it to a real baseline.
 function normalize(parsed: Partial<AppState>): AppState {
   const tariff = { ...DEFAULT_TARIFF, ...parsed.tariff };
+  let records = (parsed.records ?? [])
+    .map((r) => ({ ...r, tariff: { ...tariff, ...r.tariff } }))
+    .sort((a, b) => a.period.localeCompare(b.period));
+  let baseline = parsed.baseline ?? null;
+  if (!baseline && records.length) {
+    const oldest = records[0];
+    const m = oldest.meter;
+    if (!m.production && !m.houseConsumption && !m.feedIn && !m.gridPurchase) {
+      baseline = {
+        date: oldest.readingDate ?? firstDayOfNextMonth(oldest.period),
+        readings: oldest.readings,
+      };
+      records = records.slice(1);
+    }
+  }
   return {
     tariff,
     agreement: { ...DEFAULT_AGREEMENT, ...parsed.agreement },
-    records: (parsed.records ?? []).map((r) => ({ ...r, tariff: { ...tariff, ...r.tariff } })),
+    baseline,
+    records,
   };
 }
 
@@ -55,6 +90,7 @@ export function loadState(): AppState {
   return {
     tariff: { ...DEFAULT_TARIFF },
     agreement: structuredClone(DEFAULT_AGREEMENT),
+    baseline: null,
     records: [],
   };
 }

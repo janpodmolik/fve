@@ -72,29 +72,29 @@ můžeš uložit nebo poslat. Nakonec **Export JSON (záloha)**.
 
 ---
 
-## První použití (jen jednou)
+## První použití (jen jednou) — počáteční odečet („bod nula")
 
-První kolo je **„nultý odečet"**: zapíšou se počáteční stavy podružek, ale
-vyúčtování ještě nevznikne — není s čím porovnávat. Skutečné vyúčtování
-uvidíš až u druhého zadaného měsíce. Průvodce tě na to sám upozorní.
+Úplně na začátku se dělá jednorázový **počáteční odečet**: opíšou se stavy
+tří podružek a datum. **Není to žádný měsíc ani vyúčtování** — jen výchozí
+bod, od kterého appka začne počítat spotřebu (rozdíl dvou odečtů). Appka tě
+k němu sama vyzve při prvním spuštění (tlačítko **🧭 Zadat počáteční
+odečet**) a provede tě jím: datum → 6 stavů z podružek → hotovo. Žádná SEMS
+čísla se u bodu nula nezadávají.
 
-1. Spusť 🧭 Průvodce a založ měsíc **předcházející** prvnímu, který chceš
-   účtovat (např. účtuješ od července → založ `2026-06`).
-2. Zadej **stavy podružek** (počáteční odečet). Krok se SEMS čísly průvodce
-   u nultého měsíce rovnou přeskočí — pro vyúčtování se nepoužijí. Výjimka:
-   „Přetoky do sítě" se počítají do ročního součtu výkupu, takže pokud už
-   běží výkup, doplň je pak na hlavní stránce.
-3. Příští měsíc už normálně projdeš průvodce celý — a dostaneš první rozpis.
+Po uložení appka ukáže, co je zapsané, a řekne, co dál: **začátkem příštího
+měsíce klikni na 🧭 Průvodce měsícem** — tím vznikne první skutečné
+vyúčtování (za měsíc, ve kterém jsi udělal bod nula).
 
-**Kdy začít? Kterýkoli den — nic se nerozbije.** Nultý odečet můžeš udělat
-klidně dnes, i když je třeba 9. v měsíci. Jediný háček: první vyúčtovaný měsíc
-bude mírně nepřesný. SEMS+ totiž počítá celé kalendářní měsíce, ale podružky
-měří až od tvého prvního odečtu — spotřebu bytů od 1. dne měsíce do dne odečtu
-tak appka nedokáže rozdělit na byty a spadne do společné spotřeby (dělí se na
-třetiny). Je to jednorázová drobnost prvního měsíce, od druhého už čísla sedí
-přesně. **Do budoucna pak odečítej vždy k 1. dni měsíce** (třeba ráno), ať se
-stavy podružek kryjí s měsíčními čísly ze SEMS+. Kdo chce úplně čistý start,
-udělá nultý odečet kdykoli a ostré účtování začne od nejbližšího 1. dne.
+**Kdy začít? Kterýkoli den — nic se nerozbije.** Jen počítej s tím, že pokud
+bod nula neuděláš 1. den měsíce, první vyúčtovaný měsíc vyjde jen orientačně:
+SEMS+ počítá celé kalendářní měsíce, ale podružky měří až od tvého odečtu —
+rozdíl spadne do společné spotřeby (dělí se na třetiny). Řešení je
+jednoduché: **1. den příštího měsíce ráno stavy bodu nula prostě přepiš** —
+bod nula se posune a první účtovaný měsíc bude celý a přesný. Dál už
+odečítej vždy k 1. dni měsíce (třeba ráno), ať se stavy kryjí s měsíčními
+čísly ze SEMS+.
+
+Bod nula později najdeš (a případný překlep opravíš) v sekci **Nastavení**.
 
 ---
 

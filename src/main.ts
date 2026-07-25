@@ -14,6 +14,7 @@ import {
   exportJson,
   importJson,
   type AppState,
+  type Baseline,
   type MonthlyRecord,
 } from './storage';
 
@@ -21,6 +22,10 @@ let state: AppState = loadState();
 let currentPeriod: string = lastOrNewPeriod();
 // Guided monthly flow: null = normal view, 0–3 = wizard step being shown.
 let wizardStep: number | null = null;
+// Guided baseline ("bod nula") flow: null = off, 0–2 = step being shown.
+// Edits go to a draft and are committed to state only on save.
+let baselineStep: number | null = null;
+let baselineDraft: Baseline | null = null;
 // In-app user guide (the layman version of NAVOD.md).
 let helpMode = false;
 // Demo mode: shows sample data in memory only — nothing is persisted and the
@@ -59,6 +64,30 @@ function periodLabel(p: string): string {
 const czk = (x: number) =>
   x.toLocaleString('cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' Kč';
 const kwh = (x: number) => x.toLocaleString('cs-CZ', { maximumFractionDigits: 1 }) + ' kWh';
+const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('cs-CZ');
+
+// What the given month's readings are diffed against: the previous month, or
+// the baseline for the oldest month. Labels are pre-declined for Czech
+// sentences ("oproti …" vs "v …").
+function previousReadingsFor(period: string):
+  | { readings: { id: string; peak: number; offPeak: number }[]; vsLabel: string; inLabel: string }
+  | undefined {
+  const prev = previousRecord(state.records, period);
+  if (prev) {
+    const l = `období ${periodLabel(prev.period)}`;
+    return { readings: prev.readings, vsLabel: l, inLabel: l };
+  }
+  if (state.baseline) {
+    const d = fmtDate(state.baseline.date);
+    return {
+      readings: state.baseline.readings,
+      vsLabel: `počátečnímu odečtu z ${d}`,
+      inLabel: `počátečním odečtu z ${d}`,
+    };
+  }
+  return undefined;
+}
+type PrevReadings = NonNullable<ReturnType<typeof previousReadingsFor>>;
 
 // Returns (or creates) the record for the current period.
 function currentRecord(): MonthlyRecord {
@@ -110,27 +139,8 @@ function numInput(value: number, onChange: (v: number) => void, extra = ''): HTM
   return i;
 }
 
-function render() {
-  const app = document.getElementById('app')!;
-  app.innerHTML = '';
-
-  if (helpMode) {
-    app.append(renderHelp());
-    return;
-  }
-  if (wizardStep !== null) {
-    app.append(renderWizard());
-    return;
-  }
-
-  const rec = currentRecord();
-  const prev = previousRecord(state.records, currentPeriod);
-  const flatConsumption = consumptionFromReadings(rec.readings, prev?.readings);
-  const result = calculateBilling(rec.meter, flatConsumption, rec.tariff, state.agreement);
-
-  const wrap = el('div', 'mx-auto max-w-4xl px-4 py-8 space-y-6');
-
-  // Header (hidden in print — the printout gets its own clean heading below)
+// Shared page header with the Návod button (hidden in print).
+function appHeader(): HTMLElement {
   const headerRow = el('header', 'flex items-start justify-between gap-3 print:hidden');
   headerRow.append(
     el('div', 'space-y-1', [
@@ -142,47 +152,59 @@ function render() {
       render();
     })
   );
-  wrap.append(headerRow);
+  return headerRow;
+}
+
+function render() {
+  const app = document.getElementById('app')!;
+  app.innerHTML = '';
+
+  if (helpMode) {
+    app.append(renderHelp());
+    return;
+  }
+  if (baselineStep !== null) {
+    app.append(renderBaselineWizard());
+    return;
+  }
+  if (wizardStep !== null) {
+    app.append(renderWizard());
+    return;
+  }
+  // No billed months yet → either the very first visit (no baseline) or the
+  // "baseline saved, waiting for the first month" state.
+  if (!state.records.length) {
+    app.append(state.baseline ? renderBaselineStatus() : renderWelcome());
+    return;
+  }
+
+  // Month view. currentPeriod must point at an existing record.
+  let rec = state.records.find((x) => x.period === currentPeriod);
+  if (!rec) {
+    rec = state.records[state.records.length - 1];
+    currentPeriod = rec.period;
+  }
+  const prevInfo = previousReadingsFor(currentPeriod);
+  const flatConsumption = consumptionFromReadings(rec.readings, prevInfo?.readings);
+  const result = calculateBilling(rec.meter, flatConsumption, rec.tariff, state.agreement);
+
+  const wrap = el('div', 'mx-auto max-w-4xl px-4 py-8 space-y-6');
+  wrap.append(appHeader());
 
   // Print-only heading, so the PDF for a tenant reads like a statement.
   wrap.append(
     el('div', 'hidden print:block space-y-1', [
       el('h1', 'text-xl font-bold text-slate-900', `Vyúčtování elektřiny — ${periodLabel(currentPeriod)}`),
       el('p', 'text-xs text-slate-500',
-        (rec.readingDate ? `Odečet podružek: ${new Date(rec.readingDate).toLocaleDateString('cs-CZ')} · ` : '') +
+        (rec.readingDate ? `Odečet podružek: ${fmtDate(rec.readingDate)} · ` : '') +
           `Vygenerováno ${new Date().toLocaleDateString('cs-CZ')} · FVE rozúčet`),
     ])
   );
 
   if (demoMode) wrap.append(demoCard());
 
-  const hasAnyData = state.records.some(
-    (r) =>
-      r.meter.production || r.meter.houseConsumption || r.meter.feedIn || r.meter.gridPurchase ||
-      r.readings.some((x) => x.peak || x.offPeak)
-  );
-
-  // First run: nothing entered yet → point to the demo and the wizard.
-  if (!demoMode && !hasAnyData) {
-    const welcome = el('section', 'rounded-lg border-2 border-emerald-300 bg-emerald-50 p-5 space-y-3 print:hidden');
-    const btnRow = el('div', 'flex gap-3 flex-wrap');
-    btnRow.append(
-      btn('🎬 Prohlédnout ukázku', 'bg-sky-600 text-white hover:bg-sky-700', enterDemo),
-      btn('🧭 Začít první odečet', 'bg-emerald-600 text-white hover:bg-emerald-700', () => {
-        wizardStep = 0;
-        render();
-      })
-    );
-    welcome.append(
-      el('h2', 'font-semibold text-emerald-900', '👋 Vítej — vypadá to, že začínáš'),
-      el('p', 'text-sm text-emerald-900', 'Tahle appka jednou měsíčně spočítá z 10 opsaných čísel, kolik má který byt zaplatit za elektřinu. Nejlepší první krok: prohlédni si ukázku s reálnými čísly z faktury, nebo se rovnou pusť do prvního odečtu — průvodce tě povede. Podrobnosti najdeš kdykoli pod 📖 Návod vpravo nahoře.'),
-      btnRow
-    );
-    wrap.append(welcome);
-  }
-
-  // Backup nudge: data exists but the last JSON export is old or missing.
-  if (!demoMode && hasAnyData) {
+  // Backup nudge: the last JSON export is old or missing.
+  if (!demoMode) {
     const last = localStorage.getItem(EXPORT_KEY);
     const days = last ? Math.floor((Date.now() - new Date(last).getTime()) / 86400000) : null;
     if (days === null || days > 31) {
@@ -201,7 +223,7 @@ function render() {
   const periodRow = el('div', 'flex items-center gap-3 flex-wrap');
   const sel = document.createElement('select');
   sel.className = 'rounded-md border border-slate-300 px-3 py-2';
-  const periods = [...new Set([currentPeriod, ...state.records.map((x) => x.period)])].sort();
+  const periods = state.records.map((x) => x.period);
   for (const p of periods) {
     const opt = document.createElement('option');
     opt.value = p;
@@ -216,9 +238,7 @@ function render() {
   const newBtn = btn('+ Nový měsíc', 'bg-slate-200 text-slate-700 hover:bg-slate-300', () => {
     // The common case is always "the month after the newest one" — one click,
     // human-readable. Any other period can be picked in the wizard.
-    const p = state.records.length
-      ? nextPeriod(state.records[state.records.length - 1].period)
-      : prevPeriod(currentPeriod); // first-ever month = baseline for last month
+    const p = nextPeriod(state.records[state.records.length - 1].period);
     if (confirm(`Založit nový měsíc: ${periodLabel(p)}?\n\n(Jiné období jde založit přes 🧭 Průvodce měsícem.)`)) {
       currentPeriod = p;
       currentRecord();
@@ -250,12 +270,12 @@ function render() {
     provede krok za krokem — pro začátek nejjistější cesta. <strong>+ Nový měsíc</strong> založí
     období ručně, rozbalovací nabídkou se vracíš k už zadaným měsícům a <strong>🗑️</strong> smaže
     jen ten zobrazený.</p>
-    <p>Úplně první kolo je „nultý odečet“: zapíšou se počáteční stavy podružek a první rozpis
-    plateb bude až od dalšího měsíce. Odečty pak dělej ideálně vždy 1. den v měsíci.</p>
+    <p>Počáteční odečet („bod nula“) je uložený zvlášť — nejstarší měsíc se počítá proti němu.
+    Prohlédnout a opravit ho můžeš dole v Nastavení. Odečty dělej ideálně vždy 1. den v měsíci.</p>
   `)));
 
   // Meter (SEMS) inputs
-  const semsChildren: Node[] = prev ? [meterGridEl(rec)] : [baselineSemsNote(), meterGridEl(rec)];
+  const semsChildren: Node[] = prevInfo ? [meterGridEl(rec)] : [noPrevNote(), meterGridEl(rec)];
   wrap.append(noPrint(card('Data ze SEMS+ (celý dům)', semsChildren, 'Z aplikace nebo portálu SEMS Portal (GoodWe). Přihlášení účtem k FVE. Hodnoty ber za daný kalendářní měsíc z měsíčního přehledu/statistik.', `
     <ol class="list-decimal space-y-1 pl-5">
       <li>Otevři aplikaci <strong>SEMS+</strong> (nebo semsportal.com) a přihlas se účtem k FVE.</li>
@@ -268,7 +288,7 @@ function render() {
   `)));
 
   // Submeter readings
-  wrap.append(noPrint(card('Stavy podružek (z displeje CIT 372L)', [readingsBoxEl(rec, prev)], 'Fyzický odečet z displejů 3 podružek v rozvaděči (1.N.P, 2.N.P, 3.N.P). Tlačítkem na měřidle přepneš mezi T1 (VT) a T2 (NT). Opisuj stav vždy ke stejnému dni v měsíci.', `
+  wrap.append(noPrint(card('Stavy podružek (z displeje CIT 372L)', [readingsBoxEl(rec, prevInfo)], 'Fyzický odečet z displejů 3 podružek v rozvaděči (1.N.P, 2.N.P, 3.N.P). Tlačítkem na měřidle přepneš mezi T1 (VT) a T2 (NT). Opisuj stav vždy ke stejnému dni v měsíci.', `
     <p>V rozvaděči jsou tři elektroměry <strong>CIT 372L</strong> — každý měří jeden byt
     (1.N.P, 2.N.P, 3.N.P).</p>
     <ol class="list-decimal space-y-1 pl-5">
@@ -284,18 +304,18 @@ function render() {
   `)));
 
   // Data checks — warn on inconsistent inputs before showing the result.
-  const warnings = collectWarnings(rec, prev, flatConsumption);
+  const warnings = collectWarnings(rec, prevInfo, flatConsumption);
   if (warnings.length) wrap.append(noPrint(warningsCardEl(warnings)));
 
-  // Result — months without a previous reading have nothing to bill; showing
-  // the table (with fixed charges only) would look like a real statement.
-  if (prev) {
+  // Result — a month with no earlier reading has nothing to bill against;
+  // showing the table (fixed charges only) would look like a real statement.
+  if (prevInfo) {
     wrap.append(resultCard(result));
   } else {
     wrap.append(
       el('section', 'rounded-lg border border-slate-200 bg-white p-5 space-y-2 text-sm text-slate-600', [
         el('h2', 'font-semibold text-slate-900', 'Rozpis na byt'),
-        el('p', '', `${periodLabel(rec.period)} je nultý odečet — drží jen počáteční stavy podružek. Vyúčtování se objeví u následujícího měsíce, až bude s čím porovnávat.`),
+        el('p', '', `Pro ${periodLabel(rec.period)} neexistuje žádný předchozí odečet, proti kterému by šla spočítat spotřeba — vyúčtování za něj nevzniká.`),
       ])
     );
   }
@@ -342,16 +362,14 @@ function render() {
 
 // === shared input blocks (used by the main view and the wizard) ===
 
-// Shown with the SEMS inputs when the displayed month is the baseline reading:
-// its SEMS numbers are not used for billing (only feed-in counts, yearly).
-function baselineSemsNote(): HTMLElement {
+// Shown when the displayed month has no earlier reading to diff against
+// (only possible with legacy imports that predate the explicit baseline).
+function noPrevNote(): HTMLElement {
   return el(
     'p',
     'rounded-md bg-amber-50 p-3 text-xs leading-relaxed text-amber-800',
-    'Tohle je nultý odečet — z tohoto měsíce appka použije jen stavy podružek, ' +
-      'vyúčtování za něj nevzniká. Čísla ze SEMS+ můžeš nechat prázdná. Jediná výjimka: ' +
-      '„Přetoky do sítě“ se počítají do ročního součtu výkupu — vyplň je, pokud už běží ' +
-      'výkup a chceš mít roční přehled přetoků kompletní.'
+    'Tento měsíc nemá žádný předchozí odečet, proti kterému by šla spočítat spotřeba bytů — ' +
+      'vyúčtování za něj nevzniká.'
   );
 }
 
@@ -390,7 +408,7 @@ function meterGridEl(rec: MonthlyRecord): HTMLElement {
   return meterGrid;
 }
 
-function readingsBoxEl(rec: MonthlyRecord, prev: MonthlyRecord | undefined): HTMLElement {
+function readingsBoxEl(rec: MonthlyRecord, prevInfo: PrevReadings | undefined): HTMLElement {
   const readingsBox = el('div', 'space-y-3');
   const hdr = el('div', 'grid grid-cols-3 gap-3 text-xs font-medium text-slate-500');
   const peakHdr = el('div', 'flex items-center justify-end gap-1');
@@ -414,7 +432,7 @@ function readingsBoxEl(rec: MonthlyRecord, prev: MonthlyRecord | undefined): HTM
   };
   for (const f of state.agreement.flats) {
     const r = rec.readings.find((x) => x.id === f.id)!;
-    const p = prev?.readings.find((x) => x.id === f.id);
+    const p = prevInfo?.readings.find((x) => x.id === f.id);
     const row = el('div', 'grid grid-cols-3 gap-3 items-start');
     row.append(el('div', 'text-sm pt-2', f.name));
     row.append(cell(r.peak, (v) => { r.peak = v; }, p?.peak));
@@ -436,27 +454,49 @@ function readingsBoxEl(rec: MonthlyRecord, prev: MonthlyRecord | undefined): HTM
   );
   readingsBox.append(dateRow);
 
-  const note = prev
-    ? el('p', 'text-xs text-slate-400', `Spotřeba se počítá jako rozdíl oproti období ${periodLabel(prev.period)}.`)
-    : el('p', 'text-xs text-amber-600', 'První (nultý) odečet — jen se zapíšou počáteční stavy, vyúčtování bude až od příštího měsíce.');
+  const note = prevInfo
+    ? el('p', 'text-xs text-slate-400', `Spotřeba se počítá jako rozdíl oproti ${prevInfo.vsLabel}.`)
+    : el('p', 'text-xs text-amber-600', 'Chybí předchozí odečet — spotřeba vyjde 0.');
   readingsBox.append(note);
   return readingsBox;
 }
 
+// Editable grid of the 6 baseline readings (VT/NT per flat). Used by the
+// baseline wizard (bound to a draft) and the baseline status/settings views.
+function baselineReadingsGrid(readings: Baseline['readings']): HTMLElement {
+  const box = el('div', 'space-y-3');
+  const hdr = el('div', 'grid grid-cols-3 gap-3 text-xs font-medium text-slate-500');
+  hdr.append(el('div', '', 'Byt'), el('div', 'text-right', 'Stav VT (T1)'), el('div', 'text-right', 'Stav NT (T2)'));
+  box.append(hdr);
+  for (const f of state.agreement.flats) {
+    let r = readings.find((x) => x.id === f.id);
+    if (!r) {
+      r = { id: f.id, peak: 0, offPeak: 0 };
+      readings.push(r);
+    }
+    const row = el('div', 'grid grid-cols-3 gap-3 items-center');
+    row.append(el('div', 'text-sm', f.name));
+    row.append(numInput(r.peak, (v) => { r!.peak = v; }));
+    row.append(numInput(r.offPeak, (v) => { r!.offPeak = v; }));
+    box.append(row);
+  }
+  return box;
+}
+
 function collectWarnings(
   rec: MonthlyRecord,
-  prev: MonthlyRecord | undefined,
+  prevInfo: PrevReadings | undefined,
   flatConsumption: { id: string; peak: number; offPeak: number }[]
 ): string[] {
   const warnings = checkConsistency(rec.meter, flatConsumption);
-  if (prev) {
+  if (prevInfo) {
     for (const f of state.agreement.flats) {
       const cur = rec.readings.find((x) => x.id === f.id)!;
-      const p = prev.readings.find((x) => x.id === f.id);
+      const p = prevInfo.readings.find((x) => x.id === f.id);
       if (!p) continue;
       if ((cur.peak > 0 && cur.peak < p.peak) || (cur.offPeak > 0 && cur.offPeak < p.offPeak)) {
         warnings.push(
-          `${f.name}: zadaný stav je NIŽŠÍ než v období ${periodLabel(prev.period)}. Stav elektroměru jen roste — ` +
+          `${f.name}: zadaný stav je NIŽŠÍ než v ${prevInfo.inLabel}. Stav elektroměru jen roste — ` +
             `nejspíš překlep. Spotřeba bytu se zatím počítá jako 0.`
         );
       }
@@ -541,7 +581,7 @@ function resultCard(r: ReturnType<typeof calculateBilling>) {
   `);
 }
 
-function settingsCard(rec: MonthlyRecord) {
+function settingsCard(rec: MonthlyRecord | null) {
   const det = document.createElement('details');
   det.className = 'rounded-lg border border-slate-200 bg-white p-5';
   trackOpen(det, 'settings');
@@ -564,14 +604,16 @@ function settingsCard(rec: MonthlyRecord) {
 
   // Each month keeps its own frozen tariff; this shows what the displayed
   // month actually bills with.
-  const prices = pricesPerMWh(rec.tariff);
-  const info = el('div', 'mt-4 space-y-1 text-sm text-slate-600');
-  info.append(
-    el('p', 'font-medium text-slate-900', `Ceník pro ${periodLabel(rec.period)} (podle něj se počítá tabulka výše)`),
-    el('p', '', `Cena VT: ${(prices.peak / 1000).toFixed(2)} Kč/kWh · NT: ${(prices.offPeak / 1000).toFixed(2)} Kč/kWh · fixy: ${prices.fixedTotalMonth.toFixed(2)} Kč/měs (bez DPH)`),
-    el('p', '', `Sleva ze silové: ${rec.tariff.discountPct} % · DPH: ${rec.tariff.vatPct} % · výkup: ${rec.tariff.feedInMWh} Kč/MWh`)
-  );
-  det.append(info);
+  if (rec) {
+    const prices = pricesPerMWh(rec.tariff);
+    const info = el('div', 'mt-4 space-y-1 text-sm text-slate-600');
+    info.append(
+      el('p', 'font-medium text-slate-900', `Ceník pro ${periodLabel(rec.period)} (podle něj se počítá tabulka výše)`),
+      el('p', '', `Cena VT: ${(prices.peak / 1000).toFixed(2)} Kč/kWh · NT: ${(prices.offPeak / 1000).toFixed(2)} Kč/kWh · fixy: ${prices.fixedTotalMonth.toFixed(2)} Kč/měs (bez DPH)`),
+      el('p', '', `Sleva ze silové: ${rec.tariff.discountPct} % · DPH: ${rec.tariff.vatPct} % · výkup: ${rec.tariff.feedInMWh} Kč/MWh`)
+    );
+    det.append(info);
+  }
 
   const tariffFields: { key: keyof typeof state.tariff; label: string; hint: string }[] = [
     { key: 'energyMWh', label: 'Silová [Kč/MWh]', hint: 'Cena silové elektřiny z ceníku innogy (Optimal 36), bez DPH. Na faktuře v části „Dodávka“ — VT i NT mají stejnou cenu, sleva se zadává zvlášť vedle.' },
@@ -587,8 +629,8 @@ function settingsCard(rec: MonthlyRecord) {
     { key: 'vatPct', label: 'DPH [%]', hint: 'Sazba DPH. Celý ceník se zadává bez DPH — appka ji přičítá až na konci výpočtu.' },
   ];
 
-  const diffs = tariffFields.filter((f) => rec.tariff[f.key] !== state.tariff[f.key]);
-  if (diffs.length) {
+  const diffs = rec ? tariffFields.filter((f) => rec.tariff[f.key] !== state.tariff[f.key]) : [];
+  if (rec && diffs.length) {
     const fmt = (x: number) => x.toLocaleString('cs-CZ');
     const diffBox = el('div', 'mt-3 space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800');
     const list = el('ul', 'list-disc pl-5 space-y-0.5');
@@ -628,6 +670,30 @@ function settingsCard(rec: MonthlyRecord) {
     el('p', 'text-xs text-slate-400', 'Změna dohody zatím jen ručně: Export JSON → upravit sekci „agreement“ → Import JSON. Podrobně v NAVOD.md.')
   );
   det.append(agBox);
+
+  // Baseline lives here once real months exist (the standalone status view is
+  // gone by then) — a typo discovered later must still be fixable.
+  if (rec && state.baseline) {
+    const b = state.baseline;
+    const bBox = el('div', 'mt-4 space-y-3 rounded-md bg-slate-50 p-3 text-sm text-slate-600');
+    const dateRow = el('div', 'flex flex-wrap items-center gap-2');
+    const dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.value = b.date;
+    dateInput.className = 'rounded-md border border-slate-300 px-3 py-1.5 text-sm';
+    dateInput.addEventListener('change', () => {
+      if (dateInput.value) b.date = dateInput.value;
+      save();
+    });
+    dateRow.append(label('Datum odečtu'), dateInput);
+    bBox.append(
+      el('div', 'font-medium text-slate-900', 'Počáteční odečet (bod nula)'),
+      el('p', 'text-xs text-slate-400', 'Výchozí stavy, proti kterým se počítá nejstarší měsíc. Sahej sem jen při opravě překlepu — změna přepočítá nejstarší vyúčtování.'),
+      dateRow,
+      baselineReadingsGrid(b.readings)
+    );
+    det.append(bBox);
+  }
 
   det.append(
     el('h3', 'mt-4 text-sm font-medium text-slate-900', 'Aktuální ceník — použije se pro nově založené měsíce'),
@@ -708,18 +774,21 @@ function renderHelp(): HTMLElement {
     <p>Odečty dělej vždy ke stejnému dni — ideálně 1. den v měsíci ráno.</p>
   `));
 
-  wrap.append(helpSection('První použití — a kdy vůbec začít', `
-    <p>První kolo je <strong>„nultý odečet“</strong>: zapíšou se počáteční stavy podružek, ale
-    vyúčtování ještě nevznikne — není s čím porovnávat. První skutečný rozpis uvidíš až
-    u druhého zadaného měsíce.</p>
-    <p><strong>Začít můžeš kterýkoli den — nic se nerozbije.</strong> Jediný háček: první vyúčtovaný
-    měsíc bude mírně nepřesný. SEMS+ počítá celé kalendářní měsíce, ale podružky měří až od
-    tvého prvního odečtu — spotřeba bytů od 1. dne měsíce do dne odečtu se tak rozpustí do
-    společné spotřeby (dělené na třetiny). Je to jednorázová drobnost; od druhého měsíce už
-    čísla sedí přesně.</p>
-    <p><strong>Do budoucna odečítej vždy k 1. dni měsíce</strong>, ať se stavy podružek kryjí
-    s měsíčními čísly ze SEMS+. Kdo chce úplně čistý start, udělá nultý odečet kdykoli a ostré
-    účtování začne od nejbližšího 1. dne.</p>
+  wrap.append(helpSection('První použití — počáteční odečet (bod nula)', `
+    <p>Úplně na začátku se dělá jednorázový <strong>počáteční odečet („bod nula“)</strong>:
+    opíšou se stavy tří podružek a datum. Není to žádný měsíc ani vyúčtování — jen výchozí
+    bod, od kterého se začne počítat spotřeba (rozdíl dvou odečtů). Appka tě k němu sama
+    vyzve při prvním spuštění a provede tě jím.</p>
+    <p><strong>Začít můžeš kterýkoli den — nic se nerozbije.</strong> První vyúčtování pak uděláš
+    začátkem následujícího měsíce přes 🧭 Průvodce měsícem.</p>
+    <p><strong>Tip pro úplně přesná čísla:</strong> pokud bod nula neuděláš 1. den měsíce, bude
+    první vyúčtovaný měsíc jen orientační (SEMS+ počítá celé kalendářní měsíce, podružky měří
+    až od tvého odečtu — rozdíl spadne do společné spotřeby). Řešení je jednoduché: 1. den
+    příštího měsíce ráno stavy bodu nula prostě přepiš — posune se a první účtovaný měsíc
+    bude celý a přesný.</p>
+    <p><strong>Dál už odečítej vždy k 1. dni měsíce</strong>, ať se stavy podružek kryjí
+    s měsíčními čísly ze SEMS+. Bod nula později najdeš (a případný překlep opravíš)
+    v Nastavení.</p>
   `));
 
   wrap.append(helpSection('Jak číst tabulku „Rozpis na byt“', `
@@ -784,8 +853,8 @@ function renderHelp(): HTMLElement {
   wrap.append(helpSection('Časté situace', `
     <p><strong>Něco jsem špatně naklikal.</strong> Jednotlivá čísla jde prostě přepsat; když chceš
     celý měsíc znovu, smaž ho (🗑️ Smazat měsíc) a projeď průvodcem.</p>
-    <p><strong>Zadal jsem stav a spotřeba je 0.</strong> Buď je to první měsíc (chybí předchozí
-    odečet), nebo je stav nižší než minule — překlep, appka na to upozorní.</p>
+    <p><strong>Zadal jsem stav a spotřeba je 0.</strong> Nejspíš je zadaný stav nižší než ten
+    předchozí (překlep) — appka na to upozorní žlutým panelem.</p>
     <p><strong>Žlutý panel hlásí, že součet bytů je vyšší než spotřeba domu.</strong> Někde je chyba
     v opisování — porovnej stavy podružek s minulým měsícem a „Spotřebu domu“ ze SEMS+.</p>
     <p><strong>Byt je prázdný, má platit?</strong> Ano — svůj díl fixů a společné spotřeby (cca
@@ -798,26 +867,219 @@ function renderHelp(): HTMLElement {
   return wrap;
 }
 
+// === first-run: welcome → baseline wizard → baseline status ===
+
+// Hidden file input + button for restoring a JSON backup (used in the welcome
+// view and the export card).
+function importButton(cls: string): DocumentFragment {
+  const frag = document.createDocumentFragment();
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'application/json';
+  fileInput.className = 'hidden';
+  fileInput.addEventListener('change', async () => {
+    const f = fileInput.files?.[0];
+    if (!f) return;
+    try {
+      state = importJson(await f.text());
+      currentPeriod = lastOrNewPeriod();
+      save();
+    } catch {
+      alert('Nepodařilo se načíst soubor.');
+    }
+  });
+  frag.append(btn('⬆️ Import JSON', cls, () => fileInput.click()), fileInput);
+  return frag;
+}
+
+function startBaselineWizard() {
+  baselineDraft = state.baseline
+    ? structuredClone(state.baseline)
+    : {
+        date: new Date().toISOString().slice(0, 10),
+        readings: state.agreement.flats.map((f) => ({ id: f.id, peak: 0, offPeak: 0 })),
+      };
+  baselineStep = 0;
+  render();
+}
+
+// Very first visit: no baseline, no months — nothing to show but the two ways
+// to start (plus restoring a backup).
+function renderWelcome(): HTMLElement {
+  const wrap = el('div', 'mx-auto max-w-4xl px-4 py-8 space-y-6');
+  wrap.append(appHeader());
+
+  const welcome = el('section', 'rounded-lg border-2 border-emerald-300 bg-emerald-50 p-5 space-y-3');
+  const btnRow = el('div', 'flex gap-3 flex-wrap');
+  btnRow.append(
+    btn('🎬 Prohlédnout ukázku', 'bg-sky-600 text-white hover:bg-sky-700', enterDemo),
+    btn('🧭 Zadat počáteční odečet', 'bg-emerald-600 text-white hover:bg-emerald-700', startBaselineWizard)
+  );
+  welcome.append(
+    el('h2', 'font-semibold text-emerald-900', '👋 Vítej — vypadá to, že začínáš'),
+    el('p', 'text-sm text-emerald-900', 'Tahle appka jednou měsíčně spočítá z 10 opsaných čísel, kolik má který byt zaplatit za elektřinu. Nejlepší první krok: prohlédni si ukázku s reálnými čísly z faktury. Až budeš chtít začít doopravdy, zadej počáteční odečet („bod nula“) — jednorázové opsání stavů elektroměrů, od kterého se začne počítat. Podrobnosti najdeš kdykoli pod 📖 Návod vpravo nahoře.'),
+    btnRow,
+    el('p', 'text-xs text-emerald-800', 'Máš zálohu z jiného počítače? Obnov ji: '),
+  );
+  welcome.append(importButton('bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100'));
+  wrap.append(welcome);
+  return wrap;
+}
+
+// Baseline saved but no month entered yet: confirm what's stored, allow
+// fixing it, and say clearly what the next step is.
+function renderBaselineStatus(): HTMLElement {
+  const b = state.baseline!;
+  const wrap = el('div', 'mx-auto max-w-4xl px-4 py-8 space-y-6');
+  wrap.append(appHeader());
+
+  const box = el('div', 'space-y-4');
+  box.append(
+    el('p', 'text-sm text-slate-600',
+      `Uložen k ${fmtDate(b.date)}. Tohle ještě není žádné vyúčtování — jen výchozí stavy elektroměrů, od kterých se začne počítat. Hodnoty i datum tu můžeš kdykoli opravit.`)
+  );
+
+  const dateRow = el('div', 'flex flex-wrap items-center gap-2');
+  const dateInput = document.createElement('input');
+  dateInput.type = 'date';
+  dateInput.value = b.date;
+  dateInput.className = 'rounded-md border border-slate-300 px-3 py-1.5 text-sm';
+  dateInput.addEventListener('change', () => {
+    if (dateInput.value) b.date = dateInput.value;
+    save();
+  });
+  dateRow.append(label('Datum odečtu'), dateInput);
+  box.append(dateRow, baselineReadingsGrid(b.readings));
+
+  const next = el('div', 'space-y-1.5 rounded-md bg-emerald-50 p-3 text-sm text-emerald-900');
+  next.append(
+    el('p', 'font-medium', 'Co dál:'),
+    el('p', '', `Začátkem příštího měsíce udělej další odečet — klikni na 🧭 Průvodce měsícem. První vyúčtování bude za ${periodLabel(b.date.slice(0, 7))}.`),
+    el('p', '', 'Tip pro úplně přesný start: pokud jsi bod nula nedělal 1. den měsíce, přepiš 1. den příštího měsíce ráno stavy i datum tady — bod nula se posune a první účtovaný měsíc bude celý a přesný. (Když to neuděláš, první měsíc vyjde jen orientačně.)')
+  );
+  box.append(next);
+
+  const btnRow = el('div', 'flex gap-3 flex-wrap');
+  btnRow.append(
+    btn('🧭 Průvodce měsícem', 'bg-emerald-600 text-white hover:bg-emerald-700', () => {
+      wizardStep = 0;
+      render();
+    })
+  );
+  if (!demoMode) btnRow.append(btn('🎬 Ukázka', 'bg-sky-100 text-sky-700 hover:bg-sky-200', enterDemo));
+  box.append(btnRow);
+
+  wrap.append(card('✓ Počáteční odečet (bod nula)', [box]));
+  wrap.append(settingsCard(null));
+  if (!demoMode) wrap.append(exportCard());
+  return wrap;
+}
+
+// Guided baseline flow: intro + date → readings → saved confirmation.
+function renderBaselineWizard(): HTMLElement {
+  const step = baselineStep!;
+  const draft = baselineDraft!;
+  const wrap = el('div', 'mx-auto max-w-2xl px-4 py-8 space-y-6');
+  const titles = ['Datum', 'Stavy podružek', 'Hotovo'];
+
+  wrap.append(
+    el('header', 'space-y-1', [
+      el('h1', 'text-xl font-bold text-slate-900', `🧭 Počáteční odečet — krok ${step + 1} ze 3`),
+      el('p', 'text-sm text-slate-500', titles.map((t, i) => (i === step ? `● ${t}` : `○ ${t}`)).join('   ')),
+    ])
+  );
+
+  const navRow = (left: HTMLElement, right: HTMLElement) => {
+    const row = el('div', 'flex justify-between gap-3');
+    row.append(left, right);
+    return row;
+  };
+
+  if (step === 0) {
+    const dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.value = draft.date;
+    dateInput.className = 'rounded-md border border-slate-300 px-3 py-2';
+    dateInput.addEventListener('change', () => {
+      if (dateInput.value) draft.date = dateInput.value;
+    });
+    const box = el('div', 'space-y-3 text-sm text-slate-600');
+    box.append(
+      el('p', '', 'Než appka může počítat, potřebuje jednorázový výchozí bod: opsat aktuální stavy tří elektroměrů v rozvaděči. Není to žádné vyúčtování — jen „bod nula“, od kterého se od příštího měsíce začne měřit spotřeba.'),
+      el('div', 'space-y-1', [label('Kdy odečet děláš?'), dateInput]),
+      el('p', 'text-xs text-slate-400', `Začít můžeš kterýkoli den — nic se nerozbije. První vyúčtování pak bude za ${periodLabel(draft.date.slice(0, 7))}. Pro úplně přesná čísla je ideální odečet 1. den měsíce; když začínáš uprostřed měsíce, můžeš stavy 1. den příštího měsíce jednoduše přepsat a začít účtovat až od něj.`)
+    );
+    wrap.append(card('Výchozí bod (bod nula)', [box]));
+    wrap.append(navRow(
+      btn('Zrušit', 'bg-slate-200 text-slate-700 hover:bg-slate-300', () => { baselineStep = null; baselineDraft = null; render(); }),
+      btn('Pokračovat →', 'bg-emerald-600 text-white hover:bg-emerald-700', () => { baselineStep = 1; render(); })
+    ));
+    return wrap;
+  }
+
+  if (step === 1) {
+    const box = el('div', 'space-y-3');
+    box.append(
+      el('p', 'text-sm text-slate-600', 'Dojdi k rozvaděči a z displejů 3 podružek (CIT 372L) opiš stavy T1 (= VT) a T2 (= NT) — tlačítkem na měřidle mezi nimi přepínáš. Zadávej STAV (velké kumulativní číslo), ne spotřebu.'),
+      baselineReadingsGrid(draft.readings)
+    );
+    wrap.append(card('Stavy podružek', [box]));
+    wrap.append(navRow(
+      btn('← Zpět', 'bg-slate-200 text-slate-700 hover:bg-slate-300', () => { baselineStep = 0; render(); }),
+      btn('Uložit →', 'bg-emerald-600 text-white hover:bg-emerald-700', () => {
+        if (draft.readings.every((r) => !r.peak && !r.offPeak) &&
+            !confirm('Všechny stavy jsou 0 — opravdu uložit? Obvykle displeje ukazují nenulová čísla.')) {
+          return;
+        }
+        state.baseline = structuredClone(draft);
+        persist();
+        baselineStep = 2;
+        render();
+      })
+    ));
+    return wrap;
+  }
+
+  // step 2 — saved confirmation
+  const b = state.baseline!;
+  const summary = el('ul', 'list-disc pl-5 space-y-0.5 text-sm text-slate-600');
+  for (const f of state.agreement.flats) {
+    const r = b.readings.find((x) => x.id === f.id);
+    summary.append(el('li', '', `${f.name}: VT ${r?.peak.toLocaleString('cs-CZ') ?? 0} · NT ${r?.offPeak.toLocaleString('cs-CZ') ?? 0}`));
+  }
+  wrap.append(
+    el('div', 'rounded-lg border-2 border-emerald-300 bg-emerald-50 p-5 space-y-2 text-sm text-emerald-900', [
+      el('p', 'font-semibold', `✓ Počáteční odečet je uložený (${fmtDate(b.date)}).`),
+      summary,
+      el('p', '', `Co dál: začátkem příštího měsíce udělej další odečet přes 🧭 Průvodce měsícem — první vyúčtování bude za ${periodLabel(b.date.slice(0, 7))}. Do té doby není potřeba nic dělat.`),
+    ])
+  );
+  const finishBox = el('div', 'flex gap-3 flex-wrap');
+  finishBox.append(btn('⬇️ Stáhnout zálohu (JSON)', 'bg-slate-200 text-slate-700 hover:bg-slate-300', downloadExport));
+  wrap.append(card('Nakonec: ulož zálohu', [finishBox, el('p', 'text-xs text-slate-400', 'Data žijí jen v tomto prohlížeči — stáhni JSON a ulož si ho (Disk, e-mail…).')]));
+  wrap.append(el('div', 'flex justify-end', [
+    btn('✓ Hotovo', 'bg-emerald-600 text-white hover:bg-emerald-700', () => { baselineStep = null; baselineDraft = null; render(); }),
+  ]));
+  return wrap;
+}
+
 // === demo mode ===
 // Real numbers from the innogy invoice 04/2026 (the ones the tests reproduce):
-// March = baseline reading, April = first billed month.
+// baseline reading on 1 Apr, April = first billed month.
 function demoState(): AppState {
   const tariff = structuredClone(state.tariff);
   return {
     tariff,
     agreement: structuredClone(state.agreement),
+    baseline: {
+      date: '2026-04-01',
+      readings: [
+        { id: 'flat1', peak: 1250, offPeak: 9860 },
+        { id: 'flat2', peak: 2340, offPeak: 15210 },
+        { id: 'flat3', peak: 480, offPeak: 3120 },
+      ],
+    },
     records: [
-      {
-        period: '2026-03',
-        meter: { production: 0, houseConsumption: 0, feedIn: 0, gridPurchase: 0 },
-        readings: [
-          { id: 'flat1', peak: 1250, offPeak: 9860 },
-          { id: 'flat2', peak: 2340, offPeak: 15210 },
-          { id: 'flat3', peak: 480, offPeak: 3120 },
-        ],
-        tariff: structuredClone(tariff),
-        readingDate: '2026-03-01',
-      },
       {
         period: '2026-04',
         meter: { production: 800, houseConsumption: 1756, feedIn: 171, gridPurchase: 1256 },
@@ -827,7 +1089,7 @@ function demoState(): AppState {
           { id: 'flat3', peak: 486, offPeak: 3164 },
         ],
         tariff: structuredClone(tariff),
-        readingDate: '2026-04-01',
+        readingDate: '2026-05-01',
       },
     ],
   };
@@ -838,6 +1100,8 @@ function enterDemo() {
   state = demoState();
   demoMode = true;
   wizardStep = null;
+  baselineStep = null;
+  baselineDraft = null;
   currentPeriod = '2026-04';
   render();
 }
@@ -864,7 +1128,7 @@ function demoCard(): HTMLElement {
       p('2) Podle podružek v rozvaděči: Byt 1 spotřeboval 460 kWh, Byt 2 740 kWh, Byt 3 50 kWh. Zbylých 506 kWh jsou společné prostory — chodby, čerpadlo, studna, akvárium… („Společná spotřeba“, dělí se na třetiny).'),
       p('3) Co z toho plyne pro lidi: FVE za duben ušetřila 1 464 Kč. Byt 1 a Byt 2 fotovoltaiku vlastní (50/50), takže každý dostal slevu 631 Kč → Byt 1 platí 1 837 Kč, Byt 2 platí 2 844 Kč (spotřeboval víc). Byt 3 FVE nevlastní, slevu nedostává → 1 023 Kč (skoro celé je třetina fixů a společné spotřeby).'),
       p('4) Součet plateb 5 704 Kč ≈ faktura innogy 5 666 Kč — rozúčtování si tedy „sedí“ s realitou. Drobný rozdíl vysvětluje NAVOD.md.'),
-      p('Březen je v ukázce jen „nultý odečet“ (počáteční stavy podružek) — proto má prázdná SEMS+ čísla, ta se z nultého měsíce nepoužívají. Přepni si na něj nahoře v Období. Každá ⓘ ikonka níže vysvětluje, odkud které číslo vzít. Podrobný návod je pod tlačítkem 📖 Návod nahoře.'),
+      p('Ukázka obsahuje i počáteční odečet („bod nula“) k 1. 4. — proti němu se počítá dubnová spotřeba bytů; najdeš ho dole v Nastavení. Každá ⓘ ikonka níže vysvětluje, odkud které číslo vzít. Podrobný návod je pod tlačítkem 📖 Návod nahoře.'),
     ]),
     btn('✕ Ukončit ukázku a vrátit moje data', 'bg-sky-600 text-white hover:bg-sky-700', exitDemo)
   );
@@ -884,23 +1148,16 @@ function downloadExport() {
 
 // === guided monthly flow (wizard) ===
 // Four screens: period → SEMS numbers → submeter readings → check + result.
+// Only reachable once the baseline exists — the baseline has its own wizard.
 function renderWizard(): HTMLElement {
   const step = wizardStep!;
   const wrap = el('div', 'mx-auto max-w-2xl px-4 py-8 space-y-6');
-
-  // Baseline months skip the SEMS step (its numbers aren't used for billing),
-  // so the progress header shows a 3-step flow instead of 4.
-  let titles = ['Období', 'Data ze SEMS+', 'Stavy podružek', 'Kontrola a výsledek'];
-  let shown = step;
-  if (step > 0 && !previousRecord(state.records, currentPeriod)) {
-    titles = ['Období', 'Stavy podružek', 'Uložení'];
-    shown = step === 2 ? 1 : 2;
-  }
+  const titles = ['Období', 'Data ze SEMS+', 'Stavy podružek', 'Kontrola a výsledek'];
 
   wrap.append(
     el('header', 'space-y-1', [
-      el('h1', 'text-xl font-bold text-slate-900', `🧭 Průvodce měsícem — krok ${shown + 1} ze ${titles.length}`),
-      el('p', 'text-sm text-slate-500', titles.map((t, i) => (i === shown ? `● ${t}` : `○ ${t}`)).join('   ')),
+      el('h1', 'text-xl font-bold text-slate-900', `🧭 Průvodce měsícem — krok ${step + 1} ze 4`),
+      el('p', 'text-sm text-slate-500', titles.map((t, i) => (i === step ? `● ${t}` : `○ ${t}`)).join('   ')),
     ])
   );
 
@@ -916,12 +1173,13 @@ function renderWizard(): HTMLElement {
   };
 
   if (step === 0) {
-    // First-ever entry: a reading taken today is the state at the END of the
-    // previous month — the baseline gets last month's label, so the current
-    // month becomes the first billed one.
+    // Suggest the month after the newest one; for the very first month the
+    // month the baseline reading was taken in.
     const suggested = state.records.length
       ? nextPeriod(state.records[state.records.length - 1].period)
-      : prevPeriod(currentPeriod);
+      : state.baseline
+        ? state.baseline.date.slice(0, 7)
+        : currentPeriod;
     const input = document.createElement('input');
     // Native month picker shows localized names ("srpen 2026") and returns
     // YYYY-MM; unsupporting browsers fall back to a text field in that format.
@@ -935,13 +1193,9 @@ function renderWizard(): HTMLElement {
       el('div', 'space-y-1', [label('Které období zadáváš?'), input]),
       state.records.length
         ? el('p', 'text-xs text-slate-400', `Poslední zadaný měsíc: ${periodLabel(state.records[state.records.length - 1].period)}. Odečty dělej ideálně vždy k 1. dni měsíce, ať se kryjí s měsíčními čísly ze SEMS+.`)
-        : el('div', 'space-y-1 rounded-md bg-amber-50 p-3 text-xs text-amber-800', [
-            el('p', 'font-medium', 'Zatím nemáš žádný měsíc — tohle kolo je „nultý odečet“.'),
-            el('p', '', 'Jen se zapíšou počáteční stavy podružek; skutečné vyúčtování uvidíš až příští měsíc, protože zatím není s čím porovnávat.'),
-            el('p', '', `Odečet, který dnes uděláš, platí jako stav ke konci minulého měsíce — proto je předvyplněno období ${periodLabel(prevPeriod(currentPeriod))}. Prvním účtovaným měsícem pak bude ${periodLabel(currentPeriod)}.`),
-            el('p', '', 'Začít můžeš klidně dnes, kterýkoli den v měsíci — nic se nerozbije. Jen první vyúčtovaný měsíc pak bude trochu nepřesný: spotřebu bytů od 1. dne měsíce do dne odečtu appka nedokáže rozdělit na byty a spadne do společné. Od druhého měsíce už všechno sedí přesně.'),
-            el('p', '', 'Do budoucna proto odečítej vždy k 1. dni měsíce (třeba ráno) — pak se stavy podružek kryjí s měsíčními čísly ze SEMS+.'),
-          ])
+        : el('p', 'text-xs text-slate-400', state.baseline
+            ? `První účtovaný měsíc — předvyplněn ${periodLabel(suggested)}, tedy měsíc, ve kterém jsi udělal počáteční odečet (${fmtDate(state.baseline.date)}). Spotřeba se spočítá proti němu.`
+            : 'Nejdřív je potřeba počáteční odečet — vrať se a zadej bod nula.')
     );
     wrap.append(card('Období', [box]));
     wrap.append(nav(null, 'Pokračovat →', () => {
@@ -953,19 +1207,17 @@ function renderWizard(): HTMLElement {
       currentPeriod = p;
       currentRecord();
       persist();
-      // Baseline month → straight to the submeter readings, SEMS is not needed.
-      wizardStep = previousRecord(state.records, p) ? 1 : 2;
+      wizardStep = 1;
       render();
     }));
     return wrap;
   }
 
   const rec = currentRecord();
-  const prev = previousRecord(state.records, currentPeriod);
+  const prevInfo = previousReadingsFor(currentPeriod);
 
   if (step === 1) {
     const box = el('div', 'space-y-3');
-    if (!prev) box.append(baselineSemsNote());
     box.append(
       el('p', 'text-sm text-slate-600', `Otevři aplikaci SEMS+ (nebo semsportal.com), přihlas se účtem k FVE a v měsíčních statistikách najdi tato 4 čísla za ${periodLabel(rec.period)}. U každého pole je ⓘ s přesným místem.`),
       meterGridEl(rec)
@@ -979,33 +1231,27 @@ function renderWizard(): HTMLElement {
     const box = el('div', 'space-y-3');
     box.append(
       el('p', 'text-sm text-slate-600', 'Dojdi k rozvaděči a z displejů 3 podružek (CIT 372L) opiš stavy T1 a T2 — tlačítkem na měřidle mezi nimi přepínáš. Zadávej STAV (velké kumulativní číslo), ne spotřebu.'),
-      readingsBoxEl(rec, prev)
+      readingsBoxEl(rec, prevInfo)
     );
     wrap.append(card('Stavy podružek', [box]));
-    wrap.append(nav(prev ? 1 : 0, 'Pokračovat →', () => { wizardStep = 3; render(); }));
+    wrap.append(nav(1, 'Pokračovat →', () => { wizardStep = 3; render(); }));
     return wrap;
   }
 
-  // step 3 — check + result (baseline months have nothing to check or bill)
-  if (prev) {
-    const flatConsumption = consumptionFromReadings(rec.readings, prev.readings);
-    const warnings = collectWarnings(rec, prev, flatConsumption);
+  // step 3 — check + result
+  if (prevInfo) {
+    const flatConsumption = consumptionFromReadings(rec.readings, prevInfo.readings);
+    const warnings = collectWarnings(rec, prevInfo, flatConsumption);
     if (warnings.length) wrap.append(warningsCardEl(warnings));
     else wrap.append(el('p', 'rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800', '✓ Kontroly prošly — čísla mezi sebou sedí.'));
     wrap.append(resultCard(calculateBilling(rec.meter, flatConsumption, rec.tariff, state.agreement)));
   } else {
-    wrap.append(
-      el('div', 'rounded-lg border border-slate-200 bg-white p-4 space-y-2 text-sm text-slate-600', [
-        el('p', 'font-medium text-slate-900', '✓ Nultý odečet je uložený.'),
-        el('p', '', 'Počáteční stavy podružek jsou zapsané. Vyúčtování se objeví u příštího měsíce, až bude s čím porovnávat.'),
-        el('p', '', 'Čísla ze SEMS+ (výroba, spotřeba, nákup) za tento měsíc nejsou potřeba, proto je průvodce přeskočil. Jen kdyby už běžel výkup přetoků, můžeš „Přetoky do sítě“ kdykoli doplnit na hlavní stránce — počítají se do ročního přehledu.'),
-      ])
-    );
+    wrap.append(noPrevNote());
   }
 
   const finishBox = el('div', 'flex gap-3 flex-wrap');
   finishBox.append(btn('⬇️ Stáhnout zálohu (JSON)', 'bg-slate-200 text-slate-700 hover:bg-slate-300', downloadExport));
-  if (prev)
+  if (prevInfo)
     finishBox.append(
       btn('🖨️ Tisk / PDF', 'bg-slate-200 text-slate-700 hover:bg-slate-300', () => {
         // Print the clean main-page statement, not the wizard screen.
@@ -1027,25 +1273,7 @@ function exportCard() {
     btn('⬇️ Export JSON (záloha)', 'bg-emerald-600 text-white hover:bg-emerald-700', downloadExport)
   );
 
-  const fileInput = document.createElement('input');
-  fileInput.type = 'file';
-  fileInput.accept = 'application/json';
-  fileInput.className = 'hidden';
-  fileInput.addEventListener('change', async () => {
-    const f = fileInput.files?.[0];
-    if (!f) return;
-    try {
-      state = importJson(await f.text());
-      currentPeriod = lastOrNewPeriod();
-      save();
-    } catch {
-      alert('Nepodařilo se načíst soubor.');
-    }
-  });
-  box.append(
-    btn('⬆️ Import JSON', 'bg-slate-200 text-slate-700 hover:bg-slate-300', () => fileInput.click()),
-    fileInput
-  );
+  box.append(importButton('bg-slate-200 text-slate-700 hover:bg-slate-300'));
 
   box.append(
     btn('🖨️ Tisk / PDF', 'bg-slate-200 text-slate-700 hover:bg-slate-300', () => window.print())
@@ -1170,11 +1398,6 @@ function billingYear(p: string): string {
 function nextPeriod(p: string): string {
   const [y, mo] = p.split('-').map(Number);
   const d = new Date(y, mo); // next month
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-function prevPeriod(p: string): string {
-  const [y, mo] = p.split('-').map(Number);
-  const d = new Date(y, mo - 2); // previous month
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 

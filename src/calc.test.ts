@@ -108,3 +108,40 @@ describe('feed-in', () => {
     expect(payouts.flat2).toBe(900);
   });
 });
+
+describe('storage migration', () => {
+  it('converts legacy oldest zero-meter month into an explicit baseline', async () => {
+    const { importJson } = await import('./storage');
+    const legacy = JSON.stringify({
+      records: [
+        {
+          period: '2026-06',
+          meter: { production: 0, houseConsumption: 0, feedIn: 0, gridPurchase: 0 },
+          readings: [{ id: 'flat1', peak: 100, offPeak: 200 }],
+          readingDate: '2026-07-25',
+        },
+        {
+          period: '2026-07',
+          meter: { production: 800, houseConsumption: 1756, feedIn: 171, gridPurchase: 1256 },
+          readings: [{ id: 'flat1', peak: 140, offPeak: 620 }],
+        },
+      ],
+    });
+    const s = importJson(legacy);
+    expect(s.baseline).not.toBeNull();
+    expect(s.baseline!.date).toBe('2026-07-25');
+    expect(s.baseline!.readings[0].peak).toBe(100);
+    expect(s.records).toHaveLength(1);
+    expect(s.records[0].period).toBe('2026-07');
+  });
+
+  it('keeps new-format backups untouched', async () => {
+    const { importJson } = await import('./storage');
+    const s = importJson(JSON.stringify({
+      baseline: { date: '2026-08-01', readings: [{ id: 'flat1', peak: 5, offPeak: 6 }] },
+      records: [],
+    }));
+    expect(s.baseline!.date).toBe('2026-08-01');
+    expect(s.records).toHaveLength(0);
+  });
+});
