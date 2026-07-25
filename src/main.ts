@@ -22,6 +22,10 @@ let state: AppState = loadState();
 let currentPeriod: string = lastOrNewPeriod();
 // Guided monthly flow: null = normal view, 0–3 = wizard step being shown.
 let wizardStep: number | null = null;
+// Period of the record the current wizard run created (if any) — so that
+// leaving the wizard without entering anything doesn't leave an empty ghost
+// month behind.
+let wizardCreatedPeriod: string | null = null;
 // Guided baseline ("bod nula") flow: null = off, 0–2 = step being shown.
 // Edits go to a draft and are committed to state only on save.
 let baselineStep: number | null = null;
@@ -1103,6 +1107,7 @@ function enterDemo() {
   state = demoState();
   demoMode = true;
   wizardStep = null;
+  wizardCreatedPeriod = null;
   baselineStep = null;
   baselineDraft = null;
   currentPeriod = '2026-04';
@@ -1149,6 +1154,31 @@ function downloadExport() {
   render(); // refresh the backup nudge
 }
 
+// A record the wizard created but the user never touched — safe to remove.
+function isUntouched(rec: MonthlyRecord): boolean {
+  const m = rec.meter;
+  return (
+    !m.production && !m.houseConsumption && !m.feedIn && !m.gridPurchase &&
+    rec.readings.every((r) => !r.peak && !r.offPeak)
+  );
+}
+
+// Leaves the wizard; a month this run created and left completely empty is
+// removed again, as if it never existed.
+function finishWizard() {
+  if (wizardCreatedPeriod) {
+    const rec = state.records.find((x) => x.period === wizardCreatedPeriod);
+    if (rec && isUntouched(rec)) {
+      state.records = state.records.filter((x) => x.period !== wizardCreatedPeriod);
+      currentPeriod = lastOrNewPeriod();
+      persist();
+    }
+  }
+  wizardCreatedPeriod = null;
+  wizardStep = null;
+  render();
+}
+
 // === guided monthly flow (wizard) ===
 // Four screens: period → SEMS numbers → submeter readings → check + result.
 // Only reachable once the baseline exists — the baseline has its own wizard.
@@ -1168,7 +1198,18 @@ function renderWizard(): HTMLElement {
     const row = el('div', 'flex justify-between gap-3');
     row.append(
       backTo === null
-        ? btn('Zrušit', 'bg-slate-200 text-slate-700 hover:bg-slate-300', () => { wizardStep = null; render(); })
+        ? btn('Zrušit', 'bg-slate-200 text-slate-700 hover:bg-slate-300', () => {
+            // Data already entered persist with the month — say so instead of
+            // letting the user fear "cancel" throws them away.
+            const created = wizardCreatedPeriod
+              ? state.records.find((x) => x.period === wizardCreatedPeriod)
+              : undefined;
+            if (created && !isUntouched(created) &&
+                !confirm(`Zadaná čísla zůstanou uložená u měsíce ${periodLabel(created.period)} — najdeš je na hlavní stránce. Zavřít průvodce?`)) {
+              return;
+            }
+            finishWizard();
+          })
         : btn('← Zpět', 'bg-slate-200 text-slate-700 hover:bg-slate-300', () => { wizardStep = backTo; render(); })
     );
     row.append(btn(nextLabel, 'bg-emerald-600 text-white hover:bg-emerald-700', onNext));
@@ -1217,9 +1258,20 @@ function renderWizard(): HTMLElement {
         alert('Vyber měsíc, případně ho zadej ve formátu 2026-07 (= červenec 2026).');
         return;
       }
+      // Changing the period mid-run: clean up a month the wizard created
+      // earlier in this run and left untouched.
+      if (wizardCreatedPeriod && wizardCreatedPeriod !== p) {
+        const old = state.records.find((x) => x.period === wizardCreatedPeriod);
+        if (old && isUntouched(old)) {
+          state.records = state.records.filter((x) => x.period !== wizardCreatedPeriod);
+        }
+        wizardCreatedPeriod = null;
+      }
+      const existed = state.records.some((x) => x.period === p);
       currentPeriod = p;
       currentRecord();
       persist();
+      if (!existed) wizardCreatedPeriod = p;
       wizardStep = 1;
       render();
     }));
@@ -1268,14 +1320,13 @@ function renderWizard(): HTMLElement {
     finishBox.append(
       btn('🖨️ Tisk / PDF', 'bg-slate-200 text-slate-700 hover:bg-slate-300', () => {
         // Print the clean main-page statement, not the wizard screen.
-        wizardStep = null;
-        render();
+        finishWizard();
         window.print();
       })
     );
   wrap.append(card('Nakonec: ulož zálohu', [finishBox, el('p', 'text-xs text-slate-400', 'Data žijí jen v tomto prohlížeči — stáhni JSON a ulož si ho (Disk, e-mail…). Obsahuje celou historii, ne jen tento měsíc.')]));
 
-  wrap.append(nav(2, '✓ Hotovo', () => { wizardStep = null; render(); }));
+  wrap.append(nav(2, '✓ Hotovo', finishWizard));
   return wrap;
 }
 
