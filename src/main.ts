@@ -890,6 +890,9 @@ function importButton(cls: string): DocumentFragment {
     try {
       state = importJson(await f.text());
       currentPeriod = lastOrNewPeriod();
+      // The file just imported IS a current backup — don't nag a user who
+      // restored on a fresh browser that they "never downloaded" one.
+      localStorage.setItem(EXPORT_KEY, new Date().toISOString());
       save();
     } catch {
       alert('Nepodařilo se načíst soubor.');
