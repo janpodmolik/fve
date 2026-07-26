@@ -13,6 +13,11 @@ export interface FlatReadings {
   id: string;
   peak: number; // T1 reading [kWh]
   offPeak: number; // T2 reading [kWh]
+  // First reading after the flat was reconnected (e.g. after a renovation
+  // with the breaker off): the meter wakes up with its historic register,
+  // which must NOT be billed as this month's consumption. When set, this
+  // month's consumption is 0 and the reading only serves as the new base.
+  firstReading?: boolean;
 }
 
 // The very first reading of the submeters — a standalone starting point
@@ -107,17 +112,19 @@ export function previousRecord(records: MonthlyRecord[], period: string): Monthl
   return earlier[earlier.length - 1];
 }
 
-// Flat consumption for the period = readings(now) − readings(previous). Zero if no previous.
+// Flat consumption for the period = readings(now) − readings(previous).
+// Zero if no previous, and zero for a flat's first reading after reconnection.
 export function consumptionFromReadings(
   current: FlatReadings[],
   previous: FlatReadings[] | undefined
 ): { id: string; peak: number; offPeak: number }[] {
   return current.map((c) => {
     const p = previous?.find((x) => x.id === c.id);
+    if (!p || c.firstReading) return { id: c.id, peak: 0, offPeak: 0 };
     return {
       id: c.id,
-      peak: p ? Math.max(0, c.peak - p.peak) : 0,
-      offPeak: p ? Math.max(0, c.offPeak - p.offPeak) : 0,
+      peak: Math.max(0, c.peak - p.peak),
+      offPeak: Math.max(0, c.offPeak - p.offPeak),
     };
   });
 }

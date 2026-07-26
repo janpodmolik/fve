@@ -444,6 +444,28 @@ function readingsBoxEl(rec: MonthlyRecord, prevInfo: PrevReadings | undefined): 
     row.append(cell(r.peak, (v) => { r.peak = v; }, p?.peak));
     row.append(cell(r.offPeak, (v) => { r.offPeak = v; }, p?.offPeak));
     readingsBox.append(row);
+
+    // A jump from 0 to a real state usually means the flat was reconnected
+    // (breaker off during renovation) and the meter woke up with its historic
+    // register — offer marking this as a fresh start instead of consumption.
+    const jumpedFromZero =
+      p && p.peak === 0 && p.offPeak === 0 && (r.peak > 0 || r.offPeak > 0);
+    if (jumpedFromZero || r.firstReading) {
+      const cbRow = el('label', 'flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!r.firstReading;
+      cb.className = 'mt-0.5';
+      cb.addEventListener('change', () => {
+        r.firstReading = cb.checked || undefined;
+        save();
+      });
+      cbRow.append(
+        cb,
+        el('span', '', `${f.name}: tohle je první odečet po připojení bytu (dosud byl bez proudu). Spotřeba se tento měsíc nepočítá — stav slouží jen jako startovní hodnota pro příští měsíce. Nezaškrtávej, pokud jde o nový elektroměr, který opravdu začal na nule.`)
+      );
+      readingsBox.append(cbRow);
+    }
   }
   const dateRow = el('div', 'flex flex-wrap items-center gap-2 pt-1');
   const dateInput = document.createElement('input');
@@ -870,10 +892,10 @@ function renderHelp(): HTMLElement {
     zadanému odečtu. Jen fix se započítá jednou, takže měsíce raději nepřeskakuj.</p>
     <p><strong>Podružka nejde přečíst (byt bez proudu, rekonstrukce).</strong> Zadávej u toho bytu
     0 u obou stavů — spotřeba vyjde 0 a byt platí jen svůj díl fixů a společné (dle dohody).
-    <strong>Pozor při znovupřipojení:</strong> elektroměr se probudí s historickým stavem v paměti.
-    První čitelné stavy zapiš nejdřív do PŘEDCHOZÍHO měsíce (nebo do bodu nula, pokud ještě
-    neúčtuješ) jako startovní hodnotu — jinak by appka bytu připsala celou starou spotřebu
-    naráz do jednoho měsíce.</p>
+    Až se byt zase připojí, elektroměr se probudí s historickým stavem v paměti. Jakmile ho
+    poprvé zapíšeš, appka to pozná (skok z nuly) a nabídne zaškrtávátko
+    <strong>„první odečet po připojení“</strong> — zaškrtni ho a spotřeba se ten měsíc
+    nepočítá, stav poslouží jen jako startovní hodnota pro další měsíce.</p>
     <p><strong>Displej ukazuje desetiny (číslo za tečkou).</strong> Klidně je opiš — pole desetiny
     umí (s tečkou i čárkou). Zaokrouhlení na celé kWh je taky v pořádku, chyba je max ±1 kWh.</p>
   `));

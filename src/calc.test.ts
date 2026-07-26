@@ -109,6 +109,24 @@ describe('feed-in', () => {
   });
 });
 
+describe('first reading after reconnection', () => {
+  it('flat marked firstReading gets zero consumption; others diff normally', async () => {
+    const { consumptionFromReadings } = await import('./storage');
+    const out = consumptionFromReadings(
+      [
+        { id: 'flat1', peak: 1060, offPeak: 10440 },
+        { id: 'flat3', peak: 4800, offPeak: 31200, firstReading: true },
+      ],
+      [
+        { id: 'flat1', peak: 1010, offPeak: 10090 },
+        { id: 'flat3', peak: 0, offPeak: 0 },
+      ]
+    );
+    expect(out.find((x) => x.id === 'flat1')).toEqual({ id: 'flat1', peak: 50, offPeak: 350 });
+    expect(out.find((x) => x.id === 'flat3')).toEqual({ id: 'flat3', peak: 0, offPeak: 0 });
+  });
+});
+
 describe('storage migration', () => {
   it('converts legacy oldest zero-meter month into an explicit baseline', async () => {
     const { importJson } = await import('./storage');

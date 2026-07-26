@@ -231,10 +231,12 @@ nepřeskakuj).
 **Podružka nejde přečíst (byt bez proudu, rekonstrukce).** Zadávej u toho bytu
 0 u obou stavů — spotřeba vyjde 0 a byt platí jen svůj díl fixů a společné
 spotřeby (tak říká dohoda; kdyby se měla dočasně dělit jinak, upraví se podíly
-v `agreement` přes JSON). **Pozor při znovupřipojení:** elektroměr se probudí
-s historickým stavem v paměti. První čitelné stavy zapiš nejdřív do
-*předchozího* měsíce (nebo do bodu nula, pokud se ještě neúčtuje) jako
-startovní hodnotu — jinak by appka bytu připsala celou starou spotřebu naráz.
+v `agreement` přes JSON). Až se byt zase připojí, elektroměr se probudí
+s historickým stavem v paměti. Jakmile ho poprvé zapíšeš, appka skok z nuly
+pozná a přímo pod bytem nabídne zaškrtávátko **„první odečet po připojení"** —
+zaškrtni ho a spotřeba se ten měsíc nepočítá, stav poslouží jen jako startovní
+hodnota pro další měsíce. (Nezaškrtávej u nového elektroměru, který opravdu
+začal na nule — tam je rozdíl skutečná spotřeba.)
 
 **Displej podružky ukazuje i desetiny kWh (číslice za tečkou).** Opisuj je —
 pole v appce desetiny umí (s tečkou i čárkou). Zaokrouhlení na celé kWh je
