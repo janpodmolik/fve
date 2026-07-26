@@ -227,3 +227,15 @@ běží i pro prázdný byt.
 poslednímu zadanému měsíci, takže se nic neztratí; jen bude v jednom vyúčtování
 spotřeba za dva měsíce (ale fix se započítá jen jednou, takže měsíc raději
 nepřeskakuj).
+
+**Podružka nejde přečíst (byt bez proudu, rekonstrukce).** Zadávej u toho bytu
+0 u obou stavů — spotřeba vyjde 0 a byt platí jen svůj díl fixů a společné
+spotřeby (tak říká dohoda; kdyby se měla dočasně dělit jinak, upraví se podíly
+v `agreement` přes JSON). **Pozor při znovupřipojení:** elektroměr se probudí
+s historickým stavem v paměti. První čitelné stavy zapiš nejdřív do
+*předchozího* měsíce (nebo do bodu nula, pokud se ještě neúčtuje) jako
+startovní hodnotu — jinak by appka bytu připsala celou starou spotřebu naráz.
+
+**Displej podružky ukazuje i desetiny kWh (číslice za tečkou).** Opisuj je —
+pole v appce desetiny umí (s tečkou i čárkou). Zaokrouhlení na celé kWh je
+taky v pořádku (chyba max ±1 kWh).

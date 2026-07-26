@@ -868,6 +868,14 @@ function renderHelp(): HTMLElement {
     850 Kč). Fix je platba za přípojku; chodba svítí a čerpadlo běží i pro prázdný byt.</p>
     <p><strong>Přeskočil jsem měsíc.</strong> Nic se neztratí — spotřeba se dopočítá proti poslednímu
     zadanému odečtu. Jen fix se započítá jednou, takže měsíce raději nepřeskakuj.</p>
+    <p><strong>Podružka nejde přečíst (byt bez proudu, rekonstrukce).</strong> Zadávej u toho bytu
+    0 u obou stavů — spotřeba vyjde 0 a byt platí jen svůj díl fixů a společné (dle dohody).
+    <strong>Pozor při znovupřipojení:</strong> elektroměr se probudí s historickým stavem v paměti.
+    První čitelné stavy zapiš nejdřív do PŘEDCHOZÍHO měsíce (nebo do bodu nula, pokud ještě
+    neúčtuješ) jako startovní hodnotu — jinak by appka bytu připsala celou starou spotřebu
+    naráz do jednoho měsíce.</p>
+    <p><strong>Displej ukazuje desetiny (číslo za tečkou).</strong> Klidně je opiš — pole desetiny
+    umí (s tečkou i čárkou). Zaokrouhlení na celé kWh je taky v pořádku, chyba je max ±1 kWh.</p>
   `));
 
   wrap.append(el('div', 'flex justify-end', [backBtn()]));
