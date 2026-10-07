@@ -64,6 +64,18 @@ function periodLabel(p: string): string {
   const [y, m] = p.split('-').map(Number);
   return MONTHS[m - 1] ? `${MONTHS[m - 1]} ${y}` : p;
 }
+// A record covering several months (period '2026-05', months 2 — the April
+// reading was never taken) reads 'duben–květen 2026'.
+function recordLabel(rec: { period: string; months?: number }): string {
+  const n = rec.months ?? 1;
+  if (n <= 1) return periodLabel(rec.period);
+  const [y, m] = rec.period.split('-').map(Number);
+  const first = new Date(y, m - n, 1);
+  const start = MONTHS[first.getMonth()];
+  return first.getFullYear() === y
+    ? `${start}–${MONTHS[m - 1]} ${y}`
+    : `${start} ${first.getFullYear()} – ${MONTHS[m - 1]} ${y}`;
+}
 
 const czk = (x: number) =>
   x.toLocaleString('cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' Kč';
@@ -190,7 +202,7 @@ function render() {
   }
   const prevInfo = previousReadingsFor(currentPeriod);
   const flatConsumption = consumptionFromReadings(rec.readings, prevInfo?.readings);
-  const result = calculateBilling(rec.meter, flatConsumption, rec.tariff, state.agreement);
+  const result = calculateBilling(rec.meter, flatConsumption, rec.tariff, state.agreement, rec.months ?? 1);
 
   const wrap = el('div', 'mx-auto max-w-4xl px-4 py-8 space-y-6');
   wrap.append(appHeader());
@@ -198,8 +210,9 @@ function render() {
   // Print-only heading, so the PDF for a tenant reads like a statement.
   wrap.append(
     el('div', 'hidden print:block space-y-1', [
-      el('h1', 'text-xl font-bold text-slate-900', `Vyúčtování elektřiny — ${periodLabel(currentPeriod)}`),
+      el('h1', 'text-xl font-bold text-slate-900', `Vyúčtování elektřiny — ${recordLabel(rec)}`),
       el('p', 'text-xs text-slate-500',
+        ((rec.months ?? 1) > 1 ? `Období ${rec.months} měsíců, stálé platby účtovány ${rec.months}× · ` : '') +
         (rec.readingDate ? `Odečet podružek: ${fmtDate(rec.readingDate)} · ` : '') +
           `Vygenerováno ${new Date().toLocaleDateString('cs-CZ')} · FVE rozúčet`),
     ])
@@ -227,12 +240,11 @@ function render() {
   const periodRow = el('div', 'flex items-center gap-3 flex-wrap');
   const sel = document.createElement('select');
   sel.className = 'rounded-md border border-slate-300 px-3 py-2';
-  const periods = state.records.map((x) => x.period);
-  for (const p of periods) {
+  for (const x of state.records) {
     const opt = document.createElement('option');
-    opt.value = p;
-    opt.textContent = periodLabel(p);
-    if (p === currentPeriod) opt.selected = true;
+    opt.value = x.period;
+    opt.textContent = recordLabel(x);
+    if (x.period === currentPeriod) opt.selected = true;
     sel.append(opt);
   }
   sel.addEventListener('change', () => {
@@ -1342,7 +1354,7 @@ function renderWizard(): HTMLElement {
     const warnings = collectWarnings(rec, prevInfo, flatConsumption);
     if (warnings.length) wrap.append(warningsCardEl(warnings));
     else wrap.append(el('p', 'rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800', '✓ Kontroly prošly — čísla mezi sebou sedí.'));
-    wrap.append(resultCard(calculateBilling(rec.meter, flatConsumption, rec.tariff, state.agreement)));
+    wrap.append(resultCard(calculateBilling(rec.meter, flatConsumption, rec.tariff, state.agreement, rec.months ?? 1)));
   } else {
     wrap.append(noPrevNote());
   }

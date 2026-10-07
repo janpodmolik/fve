@@ -109,7 +109,8 @@ export function calculateBilling(
   meter: MeterData,
   flats: FlatConsumption[],
   tariff: Tariff = DEFAULT_TARIFF,
-  agreement: Agreement = DEFAULT_AGREEMENT
+  agreement: Agreement = DEFAULT_AGREEMENT,
+  fixedMonths = 1 // calendar months covered — fixed charges are per month
 ): BillingResult {
   const prices = pricesPerMWh(tariff);
   const m = vatMult(tariff);
@@ -175,7 +176,7 @@ export function calculateBilling(
     flats.reduce((s, f) => s + (shares[f.id] || 0), 0);
   const sumFixed = sumShares(agreement.fixedShares);
   const sumCommon = sumShares(agreement.commonShares);
-  const fixedTotalWithVat = prices.fixedTotalMonth * m;
+  const fixedTotalWithVat = prices.fixedTotalMonth * fixedMonths * m;
   const sumPvShares =
     Object.values(agreement.pvShares).reduce((s, x) => s + x, 0) || 100;
 

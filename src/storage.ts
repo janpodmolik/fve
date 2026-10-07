@@ -37,6 +37,10 @@ export interface MonthlyRecord {
   // tariff change never silently rewrites already issued bills
   readingDate?: string; // 'YYYY-MM-DD' — the day the submeters were actually
   // read; documents e.g. a skewed first month that started mid-month
+  months?: number; // how many calendar months this record covers (default 1).
+  // Used when a mid-period reading is missing (e.g. April+May read once on
+  // 31 May): consumption is a plain difference anyway, but the fixed monthly
+  // charges must be billed once per month covered.
 }
 
 export interface AppState {
@@ -77,12 +81,22 @@ function normalize(parsed: Partial<AppState>): AppState {
       records = records.slice(1);
     }
   }
-  return {
-    tariff,
-    agreement: { ...DEFAULT_AGREEMENT, ...parsed.agreement },
-    baseline,
-    records,
-  };
+  const agreement = { ...DEFAULT_AGREEMENT, ...parsed.agreement };
+  // A record may lack a flat entirely (photo of one submeter missing). The UI
+  // and billing assume every flat is present, so carry the last known reading
+  // forward: that flat gets zero consumption this month and the difference
+  // lands in the next one — never a crash, never a negative.
+  let last: FlatReadings[] = baseline?.readings ?? [];
+  for (const r of records) {
+    for (const f of agreement.flats) {
+      if (!r.readings.find((x) => x.id === f.id)) {
+        const prev = last.find((x) => x.id === f.id);
+        r.readings.push({ id: f.id, peak: prev?.peak ?? 0, offPeak: prev?.offPeak ?? 0 });
+      }
+    }
+    last = r.readings;
+  }
+  return { tariff, agreement, baseline, records };
 }
 
 export function loadState(): AppState {

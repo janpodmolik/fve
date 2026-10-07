@@ -163,3 +163,46 @@ describe('storage migration', () => {
     expect(s.records).toHaveLength(0);
   });
 });
+
+describe('multi-month record (missing mid-period reading)', () => {
+  it('bills fixed charges once per covered month, energy unchanged', () => {
+    const meter: MeterData = { production: 2040, houseConsumption: 3520, feedIn: 311, gridPurchase: 1877 };
+    const flats: FlatConsumption[] = [
+      { id: 'flat1', peak: 197, offPeak: 865 },
+      { id: 'flat2', peak: 142, offPeak: 1216 },
+      { id: 'flat3', peak: 1, offPeak: 3 },
+    ];
+    const one = calculateBilling(meter, flats, DEFAULT_TARIFF, DEFAULT_AGREEMENT, 1);
+    const two = calculateBilling(meter, flats, DEFAULT_TARIFF, DEFAULT_AGREEMENT, 2);
+    expect(two.rows[0].fixed).toBeCloseTo(one.rows[0].fixed * 2, 2);
+    expect(two.rows[0].gridCost).toBe(one.rows[0].gridCost);
+    expect(two.rows[0].pvBonus).toBe(one.rows[0].pvBonus);
+    expect(two.grandTotal - one.grandTotal).toBeCloseTo(
+      pricesPerMWh(DEFAULT_TARIFF).fixedTotalMonth * (1 + DEFAULT_TARIFF.vatPct / 100), 0
+    );
+  });
+
+  it('import pads a flat missing from a record by carrying its last reading forward', async () => {
+    const { importJson, consumptionFromReadings } = await import('./storage');
+    const s = importJson(JSON.stringify({
+      baseline: { date: '2026-03-31', readings: [
+        { id: 'flat1', peak: 100, offPeak: 200 },
+        { id: 'flat2', peak: 50, offPeak: 60 },
+        { id: 'flat3', peak: 1, offPeak: 2 },
+      ] },
+      records: [
+        { period: '2026-05', readingDate: '2026-05-31',
+          meter: { production: 1, houseConsumption: 1, feedIn: 0, gridPurchase: 1 },
+          readings: [{ id: 'flat1', peak: 110, offPeak: 220 }, { id: 'flat2', peak: 55, offPeak: 66 }] }, // flat3 missing
+        { period: '2026-06', readingDate: '2026-06-30',
+          meter: { production: 1, houseConsumption: 1, feedIn: 0, gridPurchase: 1 },
+          readings: [{ id: 'flat1', peak: 120, offPeak: 240 }, { id: 'flat2', peak: 60, offPeak: 70 }, { id: 'flat3', peak: 4, offPeak: 8 }] },
+      ],
+    }));
+    const may = s.records[0];
+    expect(may.readings.find((r) => r.id === 'flat3')).toEqual({ id: 'flat3', peak: 1, offPeak: 2 });
+    // zero consumption in May, the whole difference lands in June
+    expect(consumptionFromReadings(may.readings, s.baseline!.readings).find((c) => c.id === 'flat3')).toEqual({ id: 'flat3', peak: 0, offPeak: 0 });
+    expect(consumptionFromReadings(s.records[1].readings, may.readings).find((c) => c.id === 'flat3')).toEqual({ id: 'flat3', peak: 3, offPeak: 6 });
+  });
+});
