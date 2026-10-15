@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   pricesPerMWh,
   calculateBilling,
+  agreementFor,
   calculateFeedIn,
   checkConsistency,
   DEFAULT_TARIFF,
@@ -204,5 +205,26 @@ describe('multi-month record (missing mid-period reading)', () => {
     // zero consumption in May, the whole difference lands in June
     expect(consumptionFromReadings(may.readings, s.baseline!.readings).find((c) => c.id === 'flat3')).toEqual({ id: 'flat3', peak: 0, offPeak: 0 });
     expect(consumptionFromReadings(s.records[1].readings, may.readings).find((c) => c.id === 'flat3')).toEqual({ id: 'flat3', peak: 3, offPeak: 6 });
+  });
+});
+
+describe('vacant flat in a period', () => {
+  it('splits fixed and common only among occupied flats', () => {
+    const meter = { production: 1000, houseConsumption: 1000, feedIn: 0, gridPurchase: 600 };
+    const flats = [
+      { id: 'flat1', peak: 50, offPeak: 250 },
+      { id: 'flat2', peak: 50, offPeak: 350 },
+      { id: 'flat3', peak: 0, offPeak: 0 },
+    ];
+    const r = calculateBilling(meter, flats, DEFAULT_TARIFF, agreementFor(DEFAULT_AGREEMENT, ['flat3']));
+    const f3 = r.rows.find((x) => x.id === 'flat3')!;
+    expect(f3.fixed).toBe(0);
+    expect(f3.common).toBe(0);
+    expect(f3.total).toBe(0);
+    const [f1, f2] = r.rows;
+    expect(f1.fixed).toBeCloseTo(f2.fixed, 0);
+    // nothing is lost: the two occupied flats carry the whole house
+    const full = calculateBilling(meter, flats, DEFAULT_TARIFF, DEFAULT_AGREEMENT);
+    expect(r.grandTotal).toBeCloseTo(full.grandTotal, 0);
   });
 });

@@ -7,7 +7,7 @@
 // Data v data/ jsou gitignorovaná — Markovy odečty nepatří do public repa.
 
 import { readFileSync } from 'node:fs';
-import { calculateBilling, checkConsistency, pricesPerMWh, calculateFeedIn } from '../src/calc';
+import { calculateBilling, agreementFor, checkConsistency, pricesPerMWh, calculateFeedIn } from '../src/calc';
 import { importJson, consumptionFromReadings, type MonthlyRecord, type Baseline } from '../src/storage';
 
 const path = process.argv[2] ?? 'data/marek.json';
@@ -39,10 +39,10 @@ if (state.baseline) {
 state.records.forEach((rec, i) => {
   const prev = previousReadings(state.records, state.baseline, i);
   const consumption = consumptionFromReadings(rec.readings, prev);
-  const result = calculateBilling(rec.meter, consumption, rec.tariff, state.agreement, rec.months ?? 1);
+  const result = calculateBilling(rec.meter, consumption, rec.tariff, agreementFor(state.agreement, rec.vacant), rec.months ?? 1);
   const prices = pricesPerMWh(rec.tariff);
 
-  console.log(`\n=== ${rec.period}${(rec.months ?? 1) > 1 ? ` (blok ${rec.months} měsíců)` : ''}${rec.readingDate ? ` (odečet ${rec.readingDate})` : ''} ===`);
+  console.log(`\n=== ${rec.period}${(rec.months ?? 1) > 1 ? ` (blok ${rec.months} měsíců)` : ''}${rec.vacant?.length ? ` (neobsazeno: ${rec.vacant.join(', ')})` : ''}${rec.readingDate ? ` (odečet ${rec.readingDate})` : ''} ===`);
   console.log(
     `  SEMS+: výroba ${kwh(rec.meter.production)} | spotřeba domu ${kwh(rec.meter.houseConsumption)} | ` +
       `přetoky ${kwh(rec.meter.feedIn)} | nákup ze sítě ${kwh(rec.meter.gridPurchase)}`

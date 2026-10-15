@@ -1,6 +1,7 @@
 import './style.css';
 import {
   calculateBilling,
+  agreementFor,
   checkConsistency,
   pricesPerMWh,
   splitPvShares,
@@ -202,7 +203,7 @@ function render() {
   }
   const prevInfo = previousReadingsFor(currentPeriod);
   const flatConsumption = consumptionFromReadings(rec.readings, prevInfo?.readings);
-  const result = calculateBilling(rec.meter, flatConsumption, rec.tariff, state.agreement, rec.months ?? 1);
+  const result = calculateBilling(rec.meter, flatConsumption, rec.tariff, agreementFor(state.agreement, rec.vacant), rec.months ?? 1);
 
   const wrap = el('div', 'mx-auto max-w-4xl px-4 py-8 space-y-6');
   wrap.append(appHeader());
@@ -213,6 +214,9 @@ function render() {
       el('h1', 'text-xl font-bold text-slate-900', `Vyúčtování elektřiny — ${recordLabel(rec)}`),
       el('p', 'text-xs text-slate-500',
         ((rec.months ?? 1) > 1 ? `Období ${rec.months} měsíců, stálé platby účtovány ${rec.months}× · ` : '') +
+        (rec.vacant?.length
+          ? `Neobsazeno: ${rec.vacant.map((id) => state.agreement.flats.find((f) => f.id === id)?.name ?? id).join(', ')} — bez podílu na stálých platbách a společné spotřebě · `
+          : '') +
         (rec.readingDate ? `Odečet podružek: ${fmtDate(rec.readingDate)} · ` : '') +
           `Vygenerováno ${new Date().toLocaleDateString('cs-CZ')} · FVE rozúčet`),
     ])

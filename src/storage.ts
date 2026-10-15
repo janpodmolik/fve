@@ -41,6 +41,9 @@ export interface MonthlyRecord {
   // Used when a mid-period reading is missing (e.g. April+May read once on
   // 31 May): consumption is a plain difference anyway, but the fixed monthly
   // charges must be billed once per month covered.
+  vacant?: string[]; // flat ids unoccupied in this period: they take no share
+  // of fixed charges or common consumption (their own metered use, if any,
+  // is still billed). Agreed per period, e.g. 3.N.P before the tenant moved in.
 }
 
 export interface AppState {

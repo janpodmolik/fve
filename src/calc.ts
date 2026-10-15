@@ -105,6 +105,19 @@ export function pricesPerMWh(t: Tariff) {
   };
 }
 
+// Agreement for one period with vacant flats removed from the fixed and
+// common keys — the remaining flats split those costs among themselves.
+export function agreementFor(agreement: Agreement, vacant: string[] = []): Agreement {
+  if (!vacant.length) return agreement;
+  const drop = (shares: Record<string, number>) =>
+    Object.fromEntries(Object.entries(shares).map(([id, v]) => [id, vacant.includes(id) ? 0 : v]));
+  return {
+    ...agreement,
+    fixedShares: drop(agreement.fixedShares),
+    commonShares: drop(agreement.commonShares),
+  };
+}
+
 export function calculateBilling(
   meter: MeterData,
   flats: FlatConsumption[],
