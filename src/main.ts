@@ -5,12 +5,15 @@ import {
   checkConsistency,
   pricesPerMWh,
   splitPvShares,
+  feedInByYear,
   type MeterData,
 } from './calc';
 import {
   loadState,
   saveState,
   previousRecord,
+  previousReadings,
+  monthsBetween,
   consumptionFromReadings,
   exportJson,
   importJson,
@@ -82,27 +85,39 @@ const czk = (x: number) =>
   x.toLocaleString('cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' Kč';
 const kwh = (x: number) => x.toLocaleString('cs-CZ', { maximumFractionDigits: 1 }) + ' kWh';
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('cs-CZ');
+// Today as 'YYYY-MM-DD' in LOCAL time — toISOString() is UTC and returns
+// yesterday between midnight and 1–2 am.
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 // What the given month's readings are diffed against: the previous month, or
 // the baseline for the oldest month. Labels are pre-declined for Czech
 // sentences ("oproti …" vs "v …").
 function previousReadingsFor(period: string):
-  | { readings: { id: string; peak: number; offPeak: number }[]; vsLabel: string; inLabel: string }
+  | {
+      readings: { id: string; peak: number; offPeak: number }[];
+      vsLabel: string;
+      inLabel: string;
+      prevPeriod?: string; // set when diffing against a month (not the baseline)
+    }
   | undefined {
+  // A register left blank in the previous month is carried forward from the
+  // last month that had it (see previousReadings).
+  const readings = previousReadings(state.records, state.baseline, period);
+  if (!readings) return undefined;
   const prev = previousRecord(state.records, period);
   if (prev) {
     const l = `období ${periodLabel(prev.period)}`;
-    return { readings: prev.readings, vsLabel: l, inLabel: l };
+    return { readings, vsLabel: l, inLabel: l, prevPeriod: prev.period };
   }
-  if (state.baseline) {
-    const d = fmtDate(state.baseline.date);
-    return {
-      readings: state.baseline.readings,
-      vsLabel: `počátečnímu odečtu z ${d}`,
-      inLabel: `počátečním odečtu z ${d}`,
-    };
-  }
-  return undefined;
+  const d = fmtDate(state.baseline!.date);
+  return {
+    readings,
+    vsLabel: `počátečnímu odečtu z ${d}`,
+    inLabel: `počátečním odečtu z ${d}`,
+  };
 }
 type PrevReadings = NonNullable<ReturnType<typeof previousReadingsFor>>;
 
@@ -117,7 +132,7 @@ function currentRecord(): MonthlyRecord {
       // Freeze the current tariff for this month — later tariff edits must not
       // rewrite already issued bills.
       tariff: structuredClone(state.tariff),
-      readingDate: new Date().toISOString().slice(0, 10),
+      readingDate: todayIso(),
     };
     state.records.push(rec);
     state.records.sort((a, b) => a.period.localeCompare(b.period));
@@ -328,6 +343,8 @@ function render() {
   // Data checks — warn on inconsistent inputs before showing the result.
   const warnings = collectWarnings(rec, prevInfo, flatConsumption);
   if (warnings.length) wrap.append(noPrint(warningsCardEl(warnings)));
+  const monthsFix = monthsFixEl(rec, prevInfo);
+  if (monthsFix) wrap.append(noPrint(monthsFix));
 
   // Result — a month with no earlier reading has nothing to bill against;
   // showing the table (fixed charges only) would look like a real statement.
@@ -344,26 +361,25 @@ function render() {
 
   // Feed-in, grouped by the buyback settlement year (1 Nov → 31 Oct).
   // Priced by each month's own tariff — the buyback price can change over time.
-  const byYear = new Map<string, { kwh: number; revenue: number }>();
-  for (const r of state.records) {
-    const y = billingYear(r.period);
-    const e = byYear.get(y) ?? { kwh: 0, revenue: 0 };
-    e.kwh += r.meter.feedIn || 0;
-    e.revenue += ((r.meter.feedIn || 0) / 1000) * r.tariff.feedInMWh;
-    byYear.set(y, e);
-  }
+  const feedInFrom = state.agreement.feedInFrom;
+  const feedInYears = feedInByYear(
+    state.records.map((r) => ({ period: r.period, months: r.months, feedIn: r.meter.feedIn || 0, priceMWh: r.tariff.feedInMWh })),
+    feedInFrom
+  );
   const feedInBox = el('div', 'space-y-2 text-sm');
-  for (const [year, sums] of [...byYear.entries()].sort()) {
-    const payouts = splitPvShares(sums.revenue, state.agreement);
+  for (const y of feedInYears) {
+    const payouts = splitPvShares(y.revenue, state.agreement);
     const line = Object.entries(payouts)
       .map(([id, amount]) => `${state.agreement.flats.find((f) => f.id === id)?.name ?? id}: ${czk(amount)}`)
       .join(' · ');
     feedInBox.append(
-      el('p', '', `Zúčtovací rok ${year}: ${kwh(sums.kwh)} → ${czk(sums.revenue)} (dle výkupní ceny jednotlivých měsíců)`),
+      el('p', '', `Zúčtovací rok ${y.year}: ${kwh(y.kwh)} → ${czk(y.revenue)} (dle výkupní ceny jednotlivých měsíců)`),
       el('p', 'text-slate-600 pl-4', line)
     );
+    if (y.unpaidKwh > 0 && feedInFrom)
+      feedInBox.append(el('p', 'text-xs text-slate-500 pl-4', `Dalších ${kwh(y.unpaidKwh)} šlo do sítě před začátkem výkupu (${fmtDate(feedInFrom)}) a neproplácí se. Měsíc, ve kterém výkup začal, je rozdělený podle dnů — je to odhad.`));
   }
-  feedInBox.append(el('p', 'text-xs text-slate-400', 'Innogy výkup zúčtovává a vyplácí 1× ročně za období 1. 11. → 31. 10. Tady se přetoky jen průběžně sčítají ze zadaných měsíců — konečné číslo porovnej s ročním vyúčtováním výkupu.'));
+  feedInBox.append(el('p', 'text-xs text-slate-400', 'Innogy výkup zúčtovává a vyplácí 1× ročně za období 1. 11. → 31. 10. Tady se přetoky jen průběžně sčítají ze zadaných měsíců. Innogy platí podle fakturačního elektroměru (registr 2.8.0), který ukazuje o něco víc než SEMS+ — konečné číslo vezmi z ročního vyúčtování výkupu.'));
   wrap.append(noPrint(card('Přetoky — výplata vlastníkům FVE', [feedInBox], 'Peníze za elektřinu prodanou do sítě. Nesouvisí s měsíčními platbami bytů — dělí se jen mezi vlastníky FVE podle podílů.', `
     <p>Tohle jsou <strong>peníze navíc</strong>, oddělené od plateb bytů: co dům neprodal sám sobě,
     prodal do sítě. Patří jen vlastníkům FVE (Byt 1 + Byt 2, 50/50).</p>
@@ -533,20 +549,63 @@ function collectWarnings(
   flatConsumption: { id: string; peak: number; offPeak: number }[]
 ): string[] {
   const warnings = checkConsistency(rec.meter, flatConsumption);
-  if (prevInfo) {
+  // A month that was only just created has nothing to check yet.
+  if (prevInfo && !isUntouched(rec)) {
+    const gap = monthsGap(rec, prevInfo);
+    if (gap !== null) {
+      const n = rec.months ?? 1;
+      warnings.push(
+        `Tento záznam navazuje na ${periodLabel(prevInfo.prevPeriod!)}, takže podružky měří spotřebu za ` +
+          `${gap} měs., ale čísla ze SEMS+ a stálé platby se počítají za ${n} měs. Buď doplň chybějící ` +
+          `měsíc, nebo záznam tlačítkem níže označ jako ${gap}měsíční a čísla ze SEMS+ zadej jako součet ` +
+          `za celé období.`
+      );
+    }
+    const registers = [['peak', 'T1 (VT)'], ['offPeak', 'T2 (NT)']] as const;
     for (const f of state.agreement.flats) {
       const cur = rec.readings.find((x) => x.id === f.id)!;
       const p = prevInfo.readings.find((x) => x.id === f.id);
-      if (!p) continue;
-      if ((cur.peak > 0 && cur.peak < p.peak) || (cur.offPeak > 0 && cur.offPeak < p.offPeak)) {
+      if (!p || cur.firstReading) continue;
+      for (const [key, name] of registers) {
+        if (cur[key] >= p[key]) continue;
         warnings.push(
-          `${f.name}: zadaný stav je NIŽŠÍ než v ${prevInfo.inLabel}. Stav elektroměru jen roste — ` +
-            `nejspíš překlep. Spotřeba bytu se zatím počítá jako 0.`
+          cur[key] === 0
+            ? `${f.name}: stav ${name} není vyplněný (minule ${p[key].toLocaleString('cs-CZ')}). Opiš ho z displeje, ` +
+                `i když se od minula nezměnil — spotřeba v tomto tarifu se zatím počítá jako 0.`
+            : `${f.name}: zadaný stav ${name} je NIŽŠÍ než v ${prevInfo.inLabel}. Stav elektroměru jen roste — ` +
+                `nejspíš překlep. Spotřeba v tomto tarifu se zatím počítá jako 0.`
         );
       }
     }
   }
   return warnings;
+}
+
+// How many calendar months the record really spans (since the previous month),
+// when that differs from what it is billed as — after a skipped or deleted
+// month the submeters cover more months than the SEMS numbers and fixed
+// charges do. Null when consistent or when diffing against the baseline.
+function monthsGap(rec: MonthlyRecord, prevInfo: PrevReadings | undefined): number | null {
+  if (!prevInfo?.prevPeriod) return null;
+  const gap = monthsBetween(prevInfo.prevPeriod, rec.period);
+  return gap !== (rec.months ?? 1) ? gap : null;
+}
+
+// One-click fix for the mismatch above: bill the record as `gap` months.
+function monthsFixEl(rec: MonthlyRecord, prevInfo: PrevReadings | undefined): HTMLElement | null {
+  const gap = monthsGap(rec, prevInfo);
+  if (gap === null || isUntouched(rec)) return null;
+  const box = el('div', 'flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3');
+  box.append(
+    el('p', 'text-sm text-amber-800', gap > 1
+      ? `Chybějící měsíc už nedoplníš? Účtuj záznam jako ${gap}měsíční — stálé platby se započtou ${gap}× a do polí SEMS+ patří součet za celé období.`
+      : 'Záznam navazuje hned na předchozí měsíc — účtuj ho jako jeden měsíc.'),
+    btn(gap > 1 ? `Označit jako ${gap}měsíční` : 'Účtovat jako 1 měsíc', 'bg-amber-600 text-white hover:bg-amber-700', () => {
+      rec.months = gap > 1 ? gap : undefined;
+      save();
+    })
+  );
+  return box;
 }
 
 function warningsCardEl(warnings: string[]): HTMLElement {
@@ -711,6 +770,7 @@ function settingsCard(rec: MonthlyRecord | null) {
     el('p', '', `Vlastníci FVE: ${owners.map((f) => `${f.name} (${ag.pvShares[f.id] ?? 0} %)`).join(' + ')} — jen oni dostávají FVE bonus a výplatu za přetoky.`),
     el('p', '', `Fixní měsíční platby v poměru — ${shareList(ag.fixedShares)}.`),
     el('p', '', `Společná spotřeba (chodby, čerpadlo, studna…) v poměru — ${shareList(ag.commonShares)}.`),
+    ...(ag.feedInFrom ? [el('p', '', `Výkup přetoků běží od ${fmtDate(ag.feedInFrom)} — dřívější přetoky se neproplácejí.`)] : []),
     el('p', 'text-xs text-slate-400', 'Změna dohody zatím jen ručně: Export JSON → upravit sekci „agreement“ → Import JSON. Podrobně v NAVOD.md.')
   );
   det.append(agBox);
@@ -863,8 +923,10 @@ function renderHelp(): HTMLElement {
     patří jen vlastníkům FVE (50/50). Innogy je vyplácí jednou ročně za období
     1.&nbsp;11.&nbsp;→&nbsp;31.&nbsp;10. Appka přetoky průběžně sčítá po zúčtovacích letech
     a ukazuje orientační výplatu; po ročním vyúčtování od innogy čísla porovnej.</p>
-    <p>Pozor: výkup běží až od 14. 5. 2026 — přetoky před tímto datem se neproplácejí,
-    i když je appka eviduje.</p>
+    <p>Výkup běží až od 14. 5. 2026 — přetoky před tímto datem se neproplácejí a appka je
+    do výplaty nepočítá (ukáže je zvlášť; květen 2026 dělí podle dnů, což je odhad). Innogy
+    platí podle fakturačního elektroměru (registr 2.8.0), který ukazuje o něco víc než SEMS+ —
+    konečné číslo je to z ročního vyúčtování výkupu.</p>
   `));
 
   wrap.append(helpSection('Nastavení — ceník a dohoda (kdy do něj sahat)', `
@@ -885,7 +947,8 @@ function renderHelp(): HTMLElement {
       <li><strong>Export JSON</strong> stáhne vždy úplně všechno — celou historii, ceníky
         i dohodu. Poslední soubor stačí k obnově celé appky. Ukládej po každém měsíci
         (Disk, e-mail…).</li>
-      <li><strong>Import JSON</strong> vše obnoví — i na jiném počítači (tak se appka „přenáší“).</li>
+      <li><strong>Import JSON</strong> vše obnoví — i na jiném počítači (tak se appka „přenáší“).
+        Nahrazuje všechna data: appka se předtím zeptá a upozorní, když je soubor starší.</li>
       <li>Data zmizí, když v prohlížeči smažeš „data webů“ — proto zálohuj. Když je poslední
         záloha starší než měsíc (nebo žádná není), appka to sama připomene žlutým proužkem.</li>
       <li><strong>🗑️ Smazat měsíc</strong> maže jen zobrazený měsíc — když něco naklikáš špatně,
@@ -904,8 +967,13 @@ function renderHelp(): HTMLElement {
     v opisování — porovnej stavy podružek s minulým měsícem a „Spotřebu domu“ ze SEMS+.</p>
     <p><strong>Byt je prázdný, má platit?</strong> Ano — svůj díl fixů a společné spotřeby (cca
     850 Kč). Fix je platba za přípojku; chodba svítí a čerpadlo běží i pro prázdný byt.</p>
-    <p><strong>Přeskočil jsem měsíc.</strong> Nic se neztratí — spotřeba se dopočítá proti poslednímu
-    zadanému odečtu. Jen fix se započítá jednou, takže měsíce raději nepřeskakuj.</p>
+    <p><strong>Přeskočil jsem měsíc (nebo jsem ho smazal).</strong> Spotřeba bytů se neztratí —
+    další záznam ji má za dva měsíce. Čísla ze SEMS+ a stálé platby by ale byly jen za jeden,
+    proto appka ukáže žluté upozornění: buď chybějící měsíc doplň, nebo klikni na
+    <strong>„Označit jako 2měsíční“</strong> a do polí SEMS+ zadej součet za oba měsíce.</p>
+    <p><strong>Nechal jsem některý stav podružky prázdný.</strong> Appka na to upozorní a spotřebu
+    v tom tarifu zatím počítá jako 0. Stav opiš vždy, i když se od minula nezměnil. Když to
+    nejde, příští měsíc se spotřeba dopočítá proti poslednímu známému stavu.</p>
     <p><strong>Podružka nejde přečíst (byt bez proudu, rekonstrukce).</strong> Zadávej u toho bytu
     0 u obou stavů — spotřeba vyjde 0 a byt platí jen svůj díl fixů a společné (dle dohody).
     Až se byt zase připojí, elektroměr se probudí s historickým stavem v paměti. Jakmile ho
@@ -934,14 +1002,33 @@ function importButton(cls: string): DocumentFragment {
     const f = fileInput.files?.[0];
     if (!f) return;
     try {
-      state = importJson(await f.text());
+      const next = importJson(await f.text()); // throws on anything but a backup
+      // Import REPLACES everything — say what is about to be lost, loudly if
+      // the file looks older than what the app already holds.
+      if (state.baseline || state.records.length) {
+        const describe = (s: AppState) =>
+          s.records.length
+            ? `${s.records.length} měs., poslední ${periodLabel(s.records[s.records.length - 1].period)}`
+            : 'jen počáteční odečet';
+        const lastOf = (s: AppState) => s.records[s.records.length - 1]?.period ?? '';
+        const older = lastOf(next) < lastOf(state) || next.records.length < state.records.length;
+        const msg =
+          'Import nahradí VŠECHNA současná data daty ze souboru.\n\n' +
+          `Teď v appce: ${describe(state)}\nV souboru: ${describe(next)}\n` +
+          (older ? '\n⚠️ Soubor vypadá STARŠÍ než data v appce — novější měsíce by zmizely.\n' : '') +
+          '\nPokračovat?';
+        if (!confirm(msg)) return;
+      }
+      state = next;
       currentPeriod = lastOrNewPeriod();
       // The file just imported IS a current backup — don't nag a user who
       // restored on a fresh browser that they "never downloaded" one.
       localStorage.setItem(EXPORT_KEY, new Date().toISOString());
       save();
-    } catch {
-      alert('Nepodařilo se načíst soubor.');
+    } catch (e) {
+      alert('Nepodařilo se načíst soubor.' + (e instanceof Error ? `\n\n${e.message}` : ''));
+    } finally {
+      fileInput.value = ''; // picking the same file again must fire `change`
     }
   });
   frag.append(btn('⬆️ Import JSON', cls, () => fileInput.click()), fileInput);
@@ -952,7 +1039,7 @@ function startBaselineWizard() {
   baselineDraft = state.baseline
     ? structuredClone(state.baseline)
     : {
-        date: new Date().toISOString().slice(0, 10),
+        date: todayIso(),
         readings: state.agreement.flats.map((f) => ({ id: f.id, peak: 0, offPeak: 0 })),
       };
   baselineStep = 0;
@@ -1010,7 +1097,7 @@ function renderBaselineStatus(): HTMLElement {
   const next = el('div', 'space-y-1.5 rounded-md bg-emerald-50 p-3 text-sm text-emerald-900');
   next.append(
     el('p', 'font-medium', 'Co dál:'),
-    el('p', '', `Začátkem příštího měsíce udělej další odečet — klikni na 🧭 Průvodce měsícem. První vyúčtování bude za ${periodLabel(b.date.slice(0, 7))}.`),
+    el('p', '', `Začátkem příštího měsíce udělej další odečet — klikni na 🧭 Průvodce měsícem. První vyúčtování bude za ${periodLabel(firstPeriodAfter(b.date))}.`),
     el('p', '', 'Tip pro úplně přesný start: pokud jsi bod nula nedělal 1. den měsíce, přepiš 1. den příštího měsíce ráno stavy i datum tady — bod nula se posune a první účtovaný měsíc bude celý a přesný. (Když to neuděláš, první měsíc vyjde jen orientačně.)')
   );
   box.append(next);
@@ -1063,7 +1150,7 @@ function renderBaselineWizard(): HTMLElement {
     box.append(
       el('p', '', 'Než appka může počítat, potřebuje jednorázový výchozí bod: opsat aktuální stavy tří elektroměrů v rozvaděči. Není to žádné vyúčtování — jen „bod nula“, od kterého se od příštího měsíce začne měřit spotřeba.'),
       el('div', 'space-y-1', [label('Kdy odečet děláš?'), dateInput]),
-      el('p', 'text-xs text-slate-400', `Začít můžeš kterýkoli den — nic se nerozbije. První vyúčtování pak bude za ${periodLabel(draft.date.slice(0, 7))}. Pro úplně přesná čísla je ideální odečet 1. den měsíce; když začínáš uprostřed měsíce, můžeš stavy 1. den příštího měsíce jednoduše přepsat a začít účtovat až od něj.`)
+      el('p', 'text-xs text-slate-400', `Začít můžeš kterýkoli den — nic se nerozbije. První vyúčtování pak bude za ${periodLabel(firstPeriodAfter(draft.date))}. Pro úplně přesná čísla je ideální odečet 1. den měsíce; když začínáš uprostřed měsíce, můžeš stavy 1. den příštího měsíce jednoduše přepsat a začít účtovat až od něj.`)
     );
     wrap.append(card('Výchozí bod (bod nula)', [box]));
     wrap.append(navRow(
@@ -1107,7 +1194,7 @@ function renderBaselineWizard(): HTMLElement {
     el('div', 'rounded-lg border-2 border-emerald-300 bg-emerald-50 p-5 space-y-2 text-sm text-emerald-900', [
       el('p', 'font-semibold', `✓ Počáteční odečet je uložený (${fmtDate(b.date)}).`),
       summary,
-      el('p', '', `Co dál: začátkem příštího měsíce udělej další odečet přes 🧭 Průvodce měsícem — první vyúčtování bude za ${periodLabel(b.date.slice(0, 7))}. Do té doby není potřeba nic dělat.`),
+      el('p', '', `Co dál: začátkem příštího měsíce udělej další odečet přes 🧭 Průvodce měsícem — první vyúčtování bude za ${periodLabel(firstPeriodAfter(b.date))}. Do té doby není potřeba nic dělat.`),
     ])
   );
   const finishBox = el('div', 'flex gap-3 flex-wrap');
@@ -1194,10 +1281,13 @@ function demoCard(): HTMLElement {
 
 // Downloads the FULL state (tariff, agreement, all months) as a JSON backup.
 function downloadExport() {
+  // Never from the demo: sample data under the real backup name would later
+  // be imported over the real data.
+  if (demoMode) return;
   const blob = new Blob([exportJson(state)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `fve-rozuct-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `fve-rozuct-${todayIso()}.json`;
   a.click();
   localStorage.setItem(EXPORT_KEY, new Date().toISOString());
   render(); // refresh the backup nudge
@@ -1271,7 +1361,7 @@ function renderWizard(): HTMLElement {
     const suggested = state.records.length
       ? nextPeriod(state.records[state.records.length - 1].period)
       : state.baseline
-        ? state.baseline.date.slice(0, 7)
+        ? firstPeriodAfter(state.baseline.date)
         : currentPeriod;
     const input = document.createElement('input');
     // Native month picker shows localized names ("srpen 2026") and returns
@@ -1297,7 +1387,7 @@ function renderWizard(): HTMLElement {
       state.records.length
         ? el('p', 'text-xs text-slate-400', `Poslední zadaný měsíc: ${periodLabel(state.records[state.records.length - 1].period)}. Odečty dělej ideálně vždy k 1. dni měsíce, ať se kryjí s měsíčními čísly ze SEMS+.`)
         : el('p', 'text-xs text-slate-400', state.baseline
-            ? `První účtovaný měsíc — předvyplněn ${periodLabel(suggested)}, tedy měsíc, ve kterém jsi udělal počáteční odečet (${fmtDate(state.baseline.date)}). Spotřeba se spočítá proti němu.`
+            ? `První účtovaný měsíc — předvyplněn ${periodLabel(suggested)} podle data počátečního odečtu (${fmtDate(state.baseline.date)}). Spotřeba se spočítá proti němu.`
             : 'Nejdřív je potřeba počáteční odečet — vrať se a zadej bod nula.')
     );
     wrap.append(card('Období', [box]));
@@ -1358,13 +1448,15 @@ function renderWizard(): HTMLElement {
     const warnings = collectWarnings(rec, prevInfo, flatConsumption);
     if (warnings.length) wrap.append(warningsCardEl(warnings));
     else wrap.append(el('p', 'rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800', '✓ Kontroly prošly — čísla mezi sebou sedí.'));
-    wrap.append(resultCard(calculateBilling(rec.meter, flatConsumption, rec.tariff, state.agreement, rec.months ?? 1)));
+    const monthsFix = monthsFixEl(rec, prevInfo);
+    if (monthsFix) wrap.append(monthsFix);
+    wrap.append(resultCard(calculateBilling(rec.meter, flatConsumption, rec.tariff, agreementFor(state.agreement, rec.vacant), rec.months ?? 1)));
   } else {
     wrap.append(noPrevNote());
   }
 
   const finishBox = el('div', 'flex gap-3 flex-wrap');
-  finishBox.append(btn('⬇️ Stáhnout zálohu (JSON)', 'bg-slate-200 text-slate-700 hover:bg-slate-300', downloadExport));
+  if (!demoMode) finishBox.append(btn('⬇️ Stáhnout zálohu (JSON)', 'bg-slate-200 text-slate-700 hover:bg-slate-300', downloadExport));
   if (prevInfo)
     finishBox.append(
       btn('🖨️ Tisk / PDF', 'bg-slate-200 text-slate-700 hover:bg-slate-300', () => {
@@ -1373,7 +1465,9 @@ function renderWizard(): HTMLElement {
         window.print();
       })
     );
-  wrap.append(card('Nakonec: ulož zálohu', [finishBox, el('p', 'text-xs text-slate-400', 'Data žijí jen v tomto prohlížeči — stáhni JSON a ulož si ho (Disk, e-mail…). Obsahuje celou historii, ne jen tento měsíc.')]));
+  wrap.append(card('Nakonec: ulož zálohu', [finishBox, el('p', 'text-xs text-slate-400', demoMode
+    ? 'V ukázce se záloha nestahuje — jsou to jen vzorová čísla.'
+    : 'Data žijí jen v tomto prohlížeči — stáhni JSON a ulož si ho (Disk, e-mail…). Obsahuje celou historii, ne jen tento měsíc.')]));
 
   wrap.append(nav(2, '✓ Hotovo', finishWizard));
   return wrap;
@@ -1503,10 +1597,14 @@ function btn(text: string, cls: string, onClick: () => void): HTMLButtonElement 
   b.addEventListener('click', onClick);
   return b;
 }
-// Buyback settlement year runs 1 Nov → 31 Oct; Nov and Dec belong to the next one.
-function billingYear(p: string): string {
-  const [y, m] = p.split('-').map(Number);
-  return m >= 11 ? `${y}/${y + 1}` : `${y - 1}/${y}`;
+// First month billed after a baseline reading: normally the month the reading
+// was taken in (next reading at the start of the following month). A reading
+// taken in the last days of a month (31 Mar) is really the start of the NEXT
+// one.
+function firstPeriodAfter(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const period = date.slice(0, 7);
+  return d > new Date(y, m, 0).getDate() - 3 ? nextPeriod(period) : period;
 }
 function nextPeriod(p: string): string {
   const [y, mo] = p.split('-').map(Number);

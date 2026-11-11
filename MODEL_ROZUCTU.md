@@ -192,7 +192,7 @@ Výpočetní jádro je [src/calc.ts](src/calc.ts) (čistý TS, bez UI), testy [s
 | §3 FVE_kWh = spotřeba − nákup | `calculateBilling()` — `pvKwh` |
 | §4 kroky A–E (síťový náklad, bonus, fixy, platba) | `calculateBilling()` — `rows` |
 | §5 společná spotřeba + její FVE díl | `calculateBilling()` — `commonKwh`, jednotka `common` |
-| §4F / přetoky ročně | `calculateFeedIn()` + seskupení po letech v [src/main.ts](src/main.ts) |
+| §4F / přetoky ročně | `feedInByYear()` — po zúčtovacích letech, až od začátku výkupu (`agreement.feedInFrom`) |
 | §3 kontrolní rovnosti | `checkConsistency()` |
 | dohoda (vlastníci, podíly, klíče) | `DEFAULT_AGREEMENT` — v UI jen ke čtení, změna přes JSON export/import |
 

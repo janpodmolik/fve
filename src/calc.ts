@@ -26,6 +26,8 @@ export interface Agreement {
   pvShares: Record<string, number>; // % of bonus among owners (Σ = 100)
   fixedShares: Record<string, number>; // proportional shares of fixed charges
   commonShares: Record<string, number>; // proportional shares of common consumption
+  feedInFrom?: string; // 'YYYY-MM-DD' — first day the buyback contract pays for
+  // surplus; anything fed in earlier went to the grid for free.
 }
 
 export interface MeterData {
@@ -89,6 +91,7 @@ export const DEFAULT_AGREEMENT: Agreement = {
   pvShares: { flat1: 50, flat2: 50 },
   fixedShares: { flat1: 1, flat2: 1, flat3: 1 },
   commonShares: { flat1: 1, flat2: 1, flat3: 1 },
+  feedInFrom: '2026-05-14', // innogy Výkup, TZVP
 };
 
 const round = (x: number, d = 2): number => Math.round(x * 10 ** d) / 10 ** d;
@@ -240,9 +243,19 @@ export function calculateBilling(
 // must roughly agree. Returns human-readable warnings (Czech, shown in the UI).
 export function checkConsistency(meter: MeterData, flats: FlatConsumption[]): string[] {
   const warnings: string[] = [];
-  if (meter.houseConsumption <= 0) return warnings; // month not filled in yet
-
   const flatsSum = flats.reduce((s, f) => s + f.peak + f.offPeak, 0);
+  if (meter.houseConsumption <= 0) {
+    // Nothing entered at all = month not filled in yet. Submeters without the
+    // SEMS numbers, however, would produce a plausible-looking but wrong bill.
+    if (flatsSum > 0) {
+      warnings.push(
+        'Chybí „Spotřeba domu“ ze SEMS+. Bez čísel ze SEMS+ se nepočítá FVE bonus ani ' +
+          'společná spotřeba — vyúčtování zatím není úplné, neposílej ho.'
+      );
+    }
+    return warnings;
+  }
+
   const pvKwh = meter.houseConsumption - meter.gridPurchase;
 
   if (flatsSum > meter.houseConsumption) {
@@ -292,4 +305,63 @@ export function calculateFeedIn(
 ): { revenue: number; payouts: Record<string, number> } {
   const revenue = (feedInKwhYear / 1000) * tariff.feedInMWh;
   return { revenue: round(revenue), payouts: splitPvShares(revenue, agreement) };
+}
+
+// Buyback settlement year runs 1 Nov → 31 Oct; Nov and Dec belong to the next one.
+export function billingYear(period: string): string {
+  const [y, m] = period.split('-').map(Number);
+  return m >= 11 ? `${y}/${y + 1}` : `${y - 1}/${y}`;
+}
+
+export interface FeedInRecord {
+  period: string; // 'YYYY-MM' — last calendar month the record covers
+  months?: number; // calendar months covered (default 1)
+  feedIn: number; // kWh fed into the grid over the whole record
+  priceMWh: number; // buyback price valid for the record
+}
+
+export interface FeedInYear {
+  year: string; // '2025/2026'
+  kwh: number; // paid kWh
+  revenue: number; // CZK
+  unpaidKwh: number; // fed in before the buyback contract started
+}
+
+// Feed-in grouped by settlement year. A record's feed-in is spread evenly over
+// its days, so a multi-month record crossing 1 Nov lands in both years and the
+// month the buyback started in (`paidFrom`) is paid only for its later part.
+export function feedInByYear(records: FeedInRecord[], paidFrom?: string): FeedInYear[] {
+  const from = paidFrom ? paidFrom.split('-').map(Number) : null;
+  const byYear = new Map<string, FeedInYear>();
+  for (const r of records) {
+    if (!r.feedIn) continue;
+    const [py, pm] = r.period.split('-').map(Number);
+    const n = Math.max(1, r.months ?? 1);
+    const parts: { y: number; m: number; days: number }[] = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(py, pm - 1 - i, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      parts.push({ y, m, days: new Date(y, m, 0).getDate() });
+    }
+    const totalDays = parts.reduce((s, x) => s + x.days, 0);
+    for (const part of parts) {
+      const kwh = (r.feedIn * part.days) / totalDays;
+      let paidShare = 1;
+      if (from) {
+        const [fy, fm, fd] = from;
+        if (part.y < fy || (part.y === fy && part.m < fm)) paidShare = 0;
+        else if (part.y === fy && part.m === fm) paidShare = (part.days - fd + 1) / part.days;
+      }
+      const key = billingYear(`${part.y}-${String(part.m).padStart(2, '0')}`);
+      const e = byYear.get(key) ?? { year: key, kwh: 0, revenue: 0, unpaidKwh: 0 };
+      e.kwh += kwh * paidShare;
+      e.revenue += ((kwh * paidShare) / 1000) * r.priceMWh;
+      e.unpaidKwh += kwh * (1 - paidShare);
+      byYear.set(key, e);
+    }
+  }
+  return [...byYear.values()]
+    .sort((a, b) => a.year.localeCompare(b.year))
+    .map((e) => ({ year: e.year, kwh: round(e.kwh, 1), revenue: round(e.revenue), unpaidKwh: round(e.unpaidKwh, 1) }));
 }

@@ -4,6 +4,7 @@ import {
   calculateBilling,
   agreementFor,
   calculateFeedIn,
+  feedInByYear,
   checkConsistency,
   DEFAULT_TARIFF,
   DEFAULT_AGREEMENT,
@@ -81,8 +82,9 @@ describe('consistency checks', () => {
     expect(checkConsistency(okMeter, okFlats)).toEqual([]);
   });
 
-  it('empty month (house consumption 0) produces no warnings', () => {
-    expect(checkConsistency({ production: 0, houseConsumption: 0, feedIn: 0, gridPurchase: 0 }, okFlats)).toEqual([]);
+  it('empty month (nothing entered yet) produces no warnings', () => {
+    const noFlats = okFlats.map((f) => ({ ...f, peak: 0, offPeak: 0 }));
+    expect(checkConsistency({ production: 0, houseConsumption: 0, feedIn: 0, gridPurchase: 0 }, noFlats)).toEqual([]);
   });
 
   it('warns when flats sum exceeds house consumption', () => {
@@ -226,5 +228,90 @@ describe('vacant flat in a period', () => {
     // nothing is lost: the two occupied flats carry the whole house
     const full = calculateBilling(meter, flats, DEFAULT_TARIFF, DEFAULT_AGREEMENT);
     expect(r.grandTotal).toBeCloseTo(full.grandTotal, 0);
+  });
+});
+
+describe('consistency — submeters without SEMS numbers', () => {
+  it('warns instead of showing a clean bill with no bonus and no common', () => {
+    const w = checkConsistency(
+      { production: 0, houseConsumption: 0, feedIn: 0, gridPurchase: 0 },
+      [{ id: 'flat1', peak: 10, offPeak: 290 }]
+    );
+    expect(w.some((x) => x.includes('Chybí „Spotřeba domu“'))).toBe(true);
+  });
+});
+
+describe('feed-in by settlement year', () => {
+  const rec = (period: string, feedIn: number, months?: number) => ({ period, feedIn, months, priceMWh: 900 });
+
+  it('pays nothing before the buyback start and pro-rates the start month by days', () => {
+    const [y] = feedInByYear([rec('2026-04', 127.51), rec('2026-05', 183.32), rec('2026-06', 349.36)], '2026-05-14');
+    expect(y.year).toBe('2025/2026');
+    // May: 14th–31st = 18 of 31 days
+    expect(y.kwh).toBeCloseTo((183.32 * 18) / 31 + 349.36, 1);
+    expect(y.unpaidKwh).toBeCloseTo(127.51 + (183.32 * 13) / 31, 1);
+    expect(y.revenue).toBeCloseTo((y.kwh / 1000) * 900, 0);
+  });
+
+  it('without a start date everything is paid', () => {
+    const [y] = feedInByYear([rec('2026-04', 100)]);
+    expect(y.kwh).toBe(100);
+    expect(y.unpaidKwh).toBe(0);
+  });
+
+  it('splits a multi-month record crossing 1 November between both years', () => {
+    // October (31 days) + November (30 days) read once at the end of November
+    const years = feedInByYear([rec('2026-11', 61, 2)], '2026-05-14');
+    expect(years.map((y) => y.year)).toEqual(['2025/2026', '2026/2027']);
+    expect(years[0].kwh).toBeCloseTo(31, 5);
+    expect(years[1].kwh).toBeCloseTo(30, 5);
+  });
+});
+
+describe('previous readings — blank register carried forward', () => {
+  it('a register left blank one month is not billed in full the next month', async () => {
+    const { previousReadings, consumptionFromReadings } = await import('./storage');
+    const meter = { production: 0, houseConsumption: 0, feedIn: 0, gridPurchase: 0 };
+    const baseline = { date: '2026-08-31', readings: [{ id: 'flat1', peak: 9852.77, offPeak: 34200.94 }] };
+    const records = [
+      // September: stalled T1 left blank (stored as 0)
+      { period: '2026-09', meter, tariff: DEFAULT_TARIFF, readings: [{ id: 'flat1', peak: 0, offPeak: 34501.31 }] },
+      { period: '2026-10', meter, tariff: DEFAULT_TARIFF, readings: [{ id: 'flat1', peak: 9852.77, offPeak: 34800 }] },
+    ];
+    const prev = previousReadings(records, baseline, '2026-10')!;
+    expect(prev[0]).toEqual({ id: 'flat1', peak: 9852.77, offPeak: 34501.31 });
+    const [c] = consumptionFromReadings(records[1].readings, prev);
+    expect(c.peak).toBe(0);
+    expect(c.offPeak).toBeCloseTo(298.69, 2);
+  });
+
+  it('oldest month diffs against the baseline; nothing earlier gives undefined', async () => {
+    const { previousReadings, monthsBetween } = await import('./storage');
+    const baseline = { date: '2026-03-31', readings: [{ id: 'flat1', peak: 1, offPeak: 2 }] };
+    expect(previousReadings([], baseline, '2026-04')).toEqual(baseline.readings);
+    expect(previousReadings([], null, '2026-04')).toBeUndefined();
+    expect(monthsBetween('2026-06', '2026-08')).toBe(2);
+    expect(monthsBetween('2026-12', '2027-01')).toBe(1);
+  });
+});
+
+describe('import validation', () => {
+  it('rejects anything that is not a backup of this app', async () => {
+    const { importJson } = await import('./storage');
+    for (const raw of ['{}', '[]', 'null', '"x"', 'not json', '{"records":[{"period":"x"}]}', '{"foo":1}']) {
+      expect(() => importJson(raw), raw).toThrow();
+    }
+  });
+
+  it('accepts a baseline-only backup and a normal one', async () => {
+    const { importJson } = await import('./storage');
+    const readings = [{ id: 'flat1', peak: 1, offPeak: 2 }];
+    expect(importJson(JSON.stringify({ baseline: { date: '2026-03-31', readings } })).baseline?.date).toBe('2026-03-31');
+    const s = importJson(JSON.stringify({
+      baseline: { date: '2026-03-31', readings },
+      records: [{ period: '2026-04', meter: { production: 1, houseConsumption: 2, feedIn: 0, gridPurchase: 1 }, readings }],
+    }));
+    expect(s.records).toHaveLength(1);
+    expect(s.agreement.feedInFrom).toBe('2026-05-14');
   });
 });

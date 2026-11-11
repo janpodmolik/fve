@@ -162,8 +162,11 @@ jen vlastníkům FVE (50/50). Innogy je vyplácí **jednou ročně** za období
 1. 11. → 31. 10. Appka přetoky průběžně sčítá po zúčtovacích letech a ukazuje
 orientační výplatu; po ročním vyúčtování od innogy čísla porovnej.
 
-Pozor: výkup běží až od 14. 5. 2026 (TZVP) — přetoky před tímto datem se
-neproplácejí, i když je appka eviduje.
+Výkup běží až od 14. 5. 2026 (TZVP) — přetoky před tímto datem se neproplácejí
+a appka je do výplaty nepočítá (ukáže je zvlášť; květen 2026 dělí podle dnů,
+což je odhad). Innogy navíc platí podle fakturačního elektroměru (registr
+2.8.0), který ukazuje o něco víc než SEMS+, takže konečné číslo je to
+z ročního vyúčtování výkupu.
 
 ---
 
@@ -178,8 +181,8 @@ Sekce **Nastavení — ceník a dohoda** (rozklikávací dole):
 - **Každý měsíc si pamatuje svůj ceník.** Když ceny změníš, platí to jen pro
   nově založené měsíce — už spočítaná vyúčtování se zpětně nezmění. Pokud má
   nový ceník platit i pro právě zobrazený měsíc (třeba ses při zadávání spletl),
-  v Nastavení se objeví žluté upozornění s tlačítkem „Použít aktuální ceník
-  pro …" — tím ho vědomě přepíšeš.
+  v Nastavení se objeví žluté upozornění s tlačítkem „Přepsat ceník měsíce …
+  hodnotami zdola" — tím ho vědomě přepíšeš.
 - **Dohoda** (kdo vlastní FVE, podíly 50/50, dělení fixů a společné na třetiny)
   se v appce jen zobrazuje. Změna: **Export JSON → upravit sekci `agreement`
   v textovém editoru → Import JSON**. To je záměr — dohoda se mění jednou za
@@ -194,7 +197,9 @@ Sekce **Nastavení — ceník a dohoda** (rozklikávací dole):
   poslední stažený soubor ti stačí k obnově celé appky. Ulož si ho na
   Disk/e-mail po každém měsíci.
 - **Import JSON** vše obnoví — na stejném i jiném počítači (tak se appka
-  „přenáší" na jiné zařízení).
+  „přenáší" na jiné zařízení). Import **nahrazuje všechna data**: appka se
+  předtím zeptá a upozorní, když je soubor starší než to, co v ní už je.
+  Soubor, který není záloha z téhle appky, odmítne.
 - Data zmizí, když v prohlížeči smažeš „data webů" — proto zálohuj. Když je
   poslední záloha starší než měsíc (nebo žádná není), appka to sama připomene
   žlutým proužkem nahoře.
@@ -223,13 +228,21 @@ chyba v opisování — porovnej stavy podružek s minulým měsícem a hodnotu
 cca 850 Kč). Fix je platba za přípojku, ne za odběr; chodba svítí a čerpadlo
 běží i pro prázdný byt.
 
-**Přeskočil jsem měsíc.** Nevadí — spotřeba se počítá jako rozdíl stavů proti
-poslednímu zadanému měsíci, takže se nic neztratí; jen bude v jednom vyúčtování
-spotřeba za dva měsíce (ale fix se započítá jen jednou, takže měsíc raději
-nepřeskakuj).
+**Přeskočil jsem měsíc (nebo jsem ho smazal).** Spotřeba bytů se neztratí —
+počítá se jako rozdíl stavů proti poslednímu zadanému měsíci, takže další
+záznam ji má za dva měsíce. Čísla ze SEMS+ a stálé platby by ale byly jen za
+jeden, proto appka ukáže žluté upozornění. Buď chybějící měsíc doplň, nebo
+klikni na **„Označit jako 2měsíční"**: stálé platby se započtou dvakrát a do
+polí SEMS+ pak zadej **součet za oba měsíce**.
+
+**Nechal jsem některý stav podružky prázdný.** Appka na to upozorní a spotřebu
+v tom tarifu zatím počítá jako 0. Stav opiš vždy, i když se od minula
+nezměnil (třeba T1, který stojí). Když to nejde, příští měsíc se spotřeba
+dopočítá proti poslednímu známému stavu, nic se nenaúčtuje dvakrát.
 
 **Podružka nejde přečíst (byt bez proudu, rekonstrukce).** Zadávej u toho bytu
-0 u obou stavů — spotřeba vyjde 0 a byt platí jen svůj díl fixů a společné
+0 u obou stavů (pokud už dřív nějaký stav měl, appka upozorní, že chybí — to
+je v pořádku) — spotřeba vyjde 0 a byt platí jen svůj díl fixů a společné
 spotřeby (tak říká dohoda; kdyby se měla dočasně dělit jinak, upraví se podíly
 v `agreement` přes JSON). Až se byt zase připojí, elektroměr se probudí
 s historickým stavem v paměti. Jakmile ho poprvé zapíšeš, appka skok z nuly

@@ -129,6 +129,41 @@ export function previousRecord(records: MonthlyRecord[], period: string): Monthl
   return earlier[earlier.length - 1];
 }
 
+// Readings a period is diffed against: the previous record's (or the baseline's
+// for the oldest month). A register left blank (0) there is carried forward
+// from the last reading that had it — otherwise one skipped field would bill
+// the meter's whole lifetime register as next month's consumption.
+export function previousReadings(
+  records: MonthlyRecord[],
+  baseline: Baseline | null,
+  period: string
+): FlatReadings[] | undefined {
+  const earlier = records
+    .filter((r) => r.period < period)
+    .sort((a, b) => a.period.localeCompare(b.period));
+  const chain = [...(baseline ? [baseline.readings] : []), ...earlier.map((r) => r.readings)];
+  if (!chain.length) return undefined;
+  const lastKnown = (id: string, key: 'peak' | 'offPeak'): number => {
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const v = chain[i].find((x) => x.id === id)?.[key];
+      if (v) return v;
+    }
+    return 0;
+  };
+  return chain[chain.length - 1].map((r) => ({
+    id: r.id,
+    peak: lastKnown(r.id, 'peak'),
+    offPeak: lastKnown(r.id, 'offPeak'),
+  }));
+}
+
+// Calendar months between two 'YYYY-MM' periods ('2026-06' → '2026-08' = 2).
+export function monthsBetween(from: string, to: string): number {
+  const [fy, fm] = from.split('-').map(Number);
+  const [ty, tm] = to.split('-').map(Number);
+  return (ty - fy) * 12 + (tm - fm);
+}
+
 // Flat consumption for the period = readings(now) − readings(previous).
 // Zero if no previous, and zero for a flat's first reading after reconnection.
 export function consumptionFromReadings(
@@ -151,6 +186,33 @@ export function exportJson(s: AppState): string {
   return JSON.stringify(s, null, 2);
 }
 
+// Throws (with a Czech message for the user) unless the file looks like a
+// backup of this app — any other JSON would otherwise silently become an
+// empty state and overwrite the real data.
 export function importJson(raw: string): AppState {
-  return normalize(JSON.parse(raw) as Partial<AppState>);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Soubor není platný JSON.');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Soubor není záloha z této appky.');
+  }
+  const p = parsed as Partial<AppState>;
+  const isReadings = (x: unknown): boolean =>
+    Array.isArray(x) && x.every((r) => r && typeof r.id === 'string' && typeof r.peak === 'number' && typeof r.offPeak === 'number');
+  if (p.records !== undefined) {
+    const ok =
+      Array.isArray(p.records) &&
+      p.records.every((r) => r && /^\d{4}-\d{2}$/.test(r.period) && r.meter && typeof r.meter === 'object' && isReadings(r.readings));
+    if (!ok) throw new Error('Soubor není záloha z této appky (poškozené měsíční záznamy).');
+  }
+  if (p.baseline != null && !(typeof p.baseline.date === 'string' && isReadings(p.baseline.readings))) {
+    throw new Error('Soubor není záloha z této appky (poškozený počáteční odečet).');
+  }
+  if (!p.baseline && !p.records?.length) {
+    throw new Error('Soubor neobsahuje žádná data — počáteční odečet ani žádný měsíc.');
+  }
+  return normalize(p);
 }

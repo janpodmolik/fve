@@ -7,24 +7,14 @@
 // Data v data/ jsou gitignorovaná — Markovy odečty nepatří do public repa.
 
 import { readFileSync } from 'node:fs';
-import { calculateBilling, agreementFor, checkConsistency, pricesPerMWh, calculateFeedIn } from '../src/calc';
-import { importJson, consumptionFromReadings, type MonthlyRecord, type Baseline } from '../src/storage';
+import { calculateBilling, agreementFor, checkConsistency, pricesPerMWh, feedInByYear, splitPvShares } from '../src/calc';
+import { importJson, consumptionFromReadings, previousReadings } from '../src/storage';
 
 const path = process.argv[2] ?? 'data/marek.json';
 const state = importJson(readFileSync(path, 'utf8'));
 
 const czk = (x: number) => `${x.toLocaleString('cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Kč`;
 const kwh = (x: number) => `${x.toLocaleString('cs-CZ', { maximumFractionDigits: 1 })} kWh`;
-
-// Readings the given month computes its consumption against: the previous
-// month's readings, or the baseline for the oldest month.
-function previousReadings(
-  records: MonthlyRecord[],
-  baseline: Baseline | null,
-  index: number
-) {
-  return index > 0 ? records[index - 1].readings : baseline?.readings;
-}
 
 if (state.baseline) {
   console.log(`\n=== BOD NULA (${state.baseline.date}) ===`);
@@ -36,8 +26,8 @@ if (state.baseline) {
   console.log('\n⚠️  Žádný bod nula — nejstarší měsíc nebude mít proti čemu počítat.');
 }
 
-state.records.forEach((rec, i) => {
-  const prev = previousReadings(state.records, state.baseline, i);
+state.records.forEach((rec) => {
+  const prev = previousReadings(state.records, state.baseline, rec.period);
   const consumption = consumptionFromReadings(rec.readings, prev);
   const result = calculateBilling(rec.meter, consumption, rec.tariff, agreementFor(state.agreement, rec.vacant), rec.months ?? 1);
   const prices = pricesPerMWh(rec.tariff);
@@ -97,16 +87,21 @@ state.records.forEach((rec, i) => {
   }
 });
 
-// Feed-in is settled once a year (1.11.→31.10.), so show the accumulated total.
-const feedInKwh = state.records.reduce((s, r) => s + r.meter.feedIn, 0);
-if (feedInKwh > 0) {
-  const latest = state.records[state.records.length - 1].tariff;
-  const payout = calculateFeedIn(feedInKwh, latest, state.agreement);
-  console.log(`\n=== PŘETOKY (kumulativně za zadané měsíce) ===`);
-  console.log(`  ${kwh(feedInKwh)} × ${latest.feedInMWh} Kč/MWh = ${czk(payout.revenue)}`);
-  for (const [id, amount] of Object.entries(payout.payouts)) {
-    const name = state.agreement.flats.find((f) => f.id === id)?.name ?? id;
-    console.log(`  ${name.padEnd(18)} ${czk(amount)}`);
+// Feed-in is settled once a year (1.11.→31.10.) and paid only from the day
+// the buyback contract started.
+const feedInFrom = state.agreement.feedInFrom;
+const years = feedInByYear(
+  state.records.map((r) => ({ period: r.period, months: r.months, feedIn: r.meter.feedIn, priceMWh: r.tariff.feedInMWh })),
+  feedInFrom
+);
+if (years.length) {
+  console.log(`\n=== PŘETOKY (po zúčtovacích letech${feedInFrom ? `, výkup od ${feedInFrom}` : ''}) ===`);
+  for (const y of years) {
+    console.log(`  ${y.year}: ${kwh(y.kwh)} → ${czk(y.revenue)}` + (y.unpaidKwh ? `   (dalších ${kwh(y.unpaidKwh)} před začátkem výkupu, neproplácí se)` : ''));
+    for (const [id, amount] of Object.entries(splitPvShares(y.revenue, state.agreement))) {
+      const name = state.agreement.flats.find((f) => f.id === id)?.name ?? id;
+      console.log(`    ${name.padEnd(18)} ${czk(amount)}`);
+    }
   }
 }
 console.log('');
