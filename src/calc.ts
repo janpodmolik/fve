@@ -108,17 +108,15 @@ export function pricesPerMWh(t: Tariff) {
   };
 }
 
-// Agreement for one period with vacant flats removed from the fixed and
-// common keys — the remaining flats split those costs among themselves.
+// Agreement for one period with vacant flats removed from the common key —
+// the occupied flats split the common consumption among themselves. A vacant
+// flat still pays its share of the fixed charges: those are for the
+// connection, which exists whether anyone lives there or not.
 export function agreementFor(agreement: Agreement, vacant: string[] = []): Agreement {
   if (!vacant.length) return agreement;
   const drop = (shares: Record<string, number>) =>
     Object.fromEntries(Object.entries(shares).map(([id, v]) => [id, vacant.includes(id) ? 0 : v]));
-  return {
-    ...agreement,
-    fixedShares: drop(agreement.fixedShares),
-    commonShares: drop(agreement.commonShares),
-  };
+  return { ...agreement, commonShares: drop(agreement.commonShares) };
 }
 
 export function calculateBilling(

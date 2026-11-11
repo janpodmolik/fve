@@ -230,7 +230,7 @@ function render() {
       el('p', 'text-xs text-slate-500',
         ((rec.months ?? 1) > 1 ? `Období ${rec.months} měsíců, stálé platby účtovány ${rec.months}× · ` : '') +
         (rec.vacant?.length
-          ? `Neobsazeno: ${rec.vacant.map((id) => state.agreement.flats.find((f) => f.id === id)?.name ?? id).join(', ')} — bez podílu na stálých platbách a společné spotřebě · `
+          ? `Neobsazeno: ${rec.vacant.map((id) => state.agreement.flats.find((f) => f.id === id)?.name ?? id).join(', ')} — platí stálé platby, bez podílu na společné spotřebě · `
           : '') +
         (rec.readingDate ? `Odečet podružek: ${fmtDate(rec.readingDate)} · ` : '') +
           `Vygenerováno ${new Date().toLocaleDateString('cs-CZ')} · FVE rozúčet`),
@@ -965,8 +965,10 @@ function renderHelp(): HTMLElement {
     předchozí (překlep) — appka na to upozorní žlutým panelem.</p>
     <p><strong>Žlutý panel hlásí, že součet bytů je vyšší než spotřeba domu.</strong> Někde je chyba
     v opisování — porovnej stavy podružek s minulým měsícem a „Spotřebu domu“ ze SEMS+.</p>
-    <p><strong>Byt je prázdný, má platit?</strong> Ano — svůj díl fixů a společné spotřeby (cca
-    850 Kč). Fix je platba za přípojku; chodba svítí a čerpadlo běží i pro prázdný byt.</p>
+    <p><strong>Byt je prázdný, má platit?</strong> Stálé platby ano, vždy — jsou za přípojku,
+    ne za odběr (cca 420 Kč měsíčně). Společnou spotřebu platí taky, pokud není v daném období
+    označený jako neobsazený: pak se společná dělí jen mezi obsazené byty. Označení se dělá
+    v záloze JSON (u měsíce <code>"vacant": ["flat3"]</code>).</p>
     <p><strong>Přeskočil jsem měsíc (nebo jsem ho smazal).</strong> Spotřeba bytů se neztratí —
     další záznam ji má za dva měsíce. Čísla ze SEMS+ a stálé platby by ale byly jen za jeden,
     proto appka ukáže žluté upozornění: buď chybějící měsíc doplň, nebo klikni na

@@ -211,7 +211,7 @@ describe('multi-month record (missing mid-period reading)', () => {
 });
 
 describe('vacant flat in a period', () => {
-  it('splits fixed and common only among occupied flats', () => {
+  it('splits common only among occupied flats; fixed charges stay on all', () => {
     const meter = { production: 1000, houseConsumption: 1000, feedIn: 0, gridPurchase: 600 };
     const flats = [
       { id: 'flat1', peak: 50, offPeak: 250 },
@@ -220,11 +220,12 @@ describe('vacant flat in a period', () => {
     ];
     const r = calculateBilling(meter, flats, DEFAULT_TARIFF, agreementFor(DEFAULT_AGREEMENT, ['flat3']));
     const f3 = r.rows.find((x) => x.id === 'flat3')!;
-    expect(f3.fixed).toBe(0);
-    expect(f3.common).toBe(0);
-    expect(f3.total).toBe(0);
     const [f1, f2] = r.rows;
-    expect(f1.fixed).toBeCloseTo(f2.fixed, 0);
+    expect(f3.common).toBe(0);
+    expect(f3.fixed).toBeCloseTo(f1.fixed, 2); // a third each, vacant or not
+    expect(f3.total).toBeCloseTo(f3.fixed, 2);
+    expect(f1.common).toBeCloseTo(f2.common, 2);
+    expect(f1.common).toBeGreaterThan(0);
     // nothing is lost: the two occupied flats carry the whole house
     const full = calculateBilling(meter, flats, DEFAULT_TARIFF, DEFAULT_AGREEMENT);
     expect(r.grandTotal).toBeCloseTo(full.grandTotal, 0);

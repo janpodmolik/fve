@@ -111,7 +111,9 @@ fyzicky spotřebuje víc? Dvě filozofie:
 ```
 fix_na_byt = fixy_celkem × 1,21 (DPH) / 3
 ```
-(I prázdný byt 3 platí svůj díl fixu — to je standardní, fix = připojení, ne spotřeba.)
+(I prázdný byt 3 platí svůj díl fixu — to je standardní, fix = připojení, ne spotřeba.
+Byt označený v daném období jako neobsazený (`vacant`) jen nenese podíl na společné
+spotřebě; ta se dělí mezi obsazené byty.)
 
 ⚠️ Standardně se fix dělí spíš podle velikosti jističe/podílu, ale rovným dílem na 3 byty
 je transparentní a obhajitelný. Markovi nabídnout i variantu „podle spotřeby".

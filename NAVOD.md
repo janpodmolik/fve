@@ -224,9 +224,11 @@ odečet), nebo je zadaný stav nižší než minule (překlep — appka na to up
 chyba v opisování — porovnej stavy podružek s minulým měsícem a hodnotu
 „Spotřeba domu" ze SEMS+.
 
-**Byt je prázdný, má platit?** Ano — svůj díl fixů a společné spotřeby (v dubnu
-cca 850 Kč). Fix je platba za přípojku, ne za odběr; chodba svítí a čerpadlo
-běží i pro prázdný byt.
+**Byt je prázdný, má platit?** Stálé platby ano, vždy — jsou za přípojku, ne za
+odběr (cca 420 Kč měsíčně). Společnou spotřebu platí taky, pokud není v daném
+období označený jako **neobsazený**: pak se společná dělí jen mezi obsazené
+byty. Označení se dělá v záloze JSON — u daného měsíce `"vacant": ["flat3"]` —
+a na vyúčtování se vytiskne.
 
 **Přeskočil jsem měsíc (nebo jsem ho smazal).** Spotřeba bytů se neztratí —
 počítá se jako rozdíl stavů proti poslednímu zadanému měsíci, takže další
