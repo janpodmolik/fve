@@ -135,12 +135,11 @@ výplata[byt2] = příjem_přetoky × 50 %
 
 ---
 
-## 5. Společná spotřeba (chodby, sklep, čerpadlo, studna…) — POVINNÉ ✓
+## 5. Společná spotřeba (společné prostory a garáž) — POVINNÉ ✓
 
-POTVRZENO z rozvaděče: dům má velkou společnou větev MIMO bytové podružky —
-osvětlení (chodby, schodiště, sklep, garáž, fasáda, pergola), čerpadlo sklep, studna,
-akvárium, venkovní zásuvky, zahradní domek, přímotop. Měří se jen 3 bytové podružky,
-takže společná spotřeba = co dům spotřeboval navíc oproti součtu bytů.
+Dům má společnou větev mimo bytové podružky: společné prostory a garáž. Měří se jen
+3 bytové podružky, takže společná spotřeba = co dům spotřeboval navíc oproti součtu bytů.
+Co přesně na společné větvi je a kolik který spotřebič bere, změřené není.
 
 ```
 spotřeba_celkem_dům = nákup_ze_sítě + FVE_kWh    (= spotřeba_domu ze SEMS)

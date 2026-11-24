@@ -108,7 +108,7 @@ Bod nula později najdeš (a případný překlep opravíš) v sekci **Nastaven�
 | **Spotřeba** | co byt reálně spotřeboval podle své podružky (VT + NT) |
 | **Síť** | kolik by ta spotřeba stála, kdyby se **všechno** kupovalo ze sítě za ceny z faktury |
 | **− FVE bonus** | sleva za elektřinu ze slunce/baterie — dostávají ji **jen vlastníci FVE** (Byt 1 + Byt 2, každý polovinu) |
-| **+ Společná** | podíl bytu (⅓) na spotřebě společných prostor — chodby, sklep, čerpadlo, studna, akvárium… (nemají vlastní elektroměr, dopočítává se) |
+| **+ Společná** | podíl bytu (⅓) na spotřebě společných prostor a garáže (nemají vlastní elektroměr, dopočítává se) |
 | **+ Fix** | podíl bytu (⅓) na stálých měsíčních platbách z faktury (platí se i při nulové spotřebě — je to cena za přípojku, ne za elektřinu) |
 | **= Platba** | výsledná částka za měsíc, **včetně DPH 21 %** |
 

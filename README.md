@@ -30,7 +30,7 @@ npm run vyuctovani  # totéž do tabulek CSV + Markdown (dum/vystupy/)
 - **Vstup:** 4 čísla ze SEMS+ (výroba, spotřeba domu, přetoky, nákup ze sítě) +
   stavy podružek CIT 372L (T1=VT, T2=NT) za 3 byty.
 - **Spotřeba bytu** = rozdíl stavů oproti minulému měsíci.
-- **Společná spotřeba** = spotřeba domu − součet bytů (chodby, čerpadlo, studna…).
+- **Společná spotřeba** = spotřeba domu − součet bytů (společné prostory a garáž).
 - **FVE bonus** jen vlastníkům FVE (Byt 1 + Byt 2, 50/50); díl úspory připadající
   na společnou spotřebu zlevňuje společnou položku všem. Fixy a společná /3.
 - **Přetoky** 900 Kč/MWh, zúčtování po letech výkupu (1.11.→31.10.), vlastníkům 50/50.

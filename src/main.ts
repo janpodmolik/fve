@@ -671,8 +671,8 @@ function resultCard(r: ReturnType<typeof calculateBilling>) {
         za ceny z faktury (= kdyby FVE nebyla).</li>
       <li><strong>− FVE bonus</strong> — sleva ze solární úspory. Dostávají ji jen vlastníci FVE
         (Byt 1 + Byt 2, každý polovinu).</li>
-      <li><strong>+ Společná</strong> — třetina spotřeby společných prostor (chodby, čerpadlo,
-        studna, akvárium…), které nemají vlastní elektroměr.</li>
+      <li><strong>+ Společná</strong> — třetina spotřeby společných prostor a garáže,
+        které nemají vlastní elektroměr.</li>
       <li><strong>+ Fix</strong> — třetina stálých měsíčních plateb z faktury. Platí se i při
         nulové spotřebě — je to cena za přípojku.</li>
       <li><strong>= Platba</strong> — výsledná částka za měsíc, včetně DPH.</li>
@@ -769,7 +769,7 @@ function settingsCard(rec: MonthlyRecord | null) {
     el('div', 'font-medium text-slate-900', 'Dohoda mezi byty (podle které se počítá)'),
     el('p', '', `Vlastníci FVE: ${owners.map((f) => `${f.name} (${ag.pvShares[f.id] ?? 0} %)`).join(' + ')} — jen oni dostávají FVE bonus a výplatu za přetoky.`),
     el('p', '', `Fixní měsíční platby v poměru — ${shareList(ag.fixedShares)}.`),
-    el('p', '', `Společná spotřeba (chodby, čerpadlo, studna…) v poměru — ${shareList(ag.commonShares)}.`),
+    el('p', '', `Společná spotřeba (společné prostory a garáž) v poměru — ${shareList(ag.commonShares)}.`),
     ...(ag.feedInFrom ? [el('p', '', `Výkup přetoků běží od ${fmtDate(ag.feedInFrom)} — dřívější přetoky se neproplácejí.`)] : []),
     el('p', 'text-xs text-slate-400', 'Změna dohody zatím jen ručně: Export JSON → upravit sekci „agreement“ → Import JSON. Podrobně v NAVOD.md.')
   );
@@ -903,8 +903,8 @@ function renderHelp(): HTMLElement {
         za ceny z faktury.</li>
       <li><strong>− FVE bonus</strong> — sleva za elektřinu ze slunce/baterie. Dostávají ji jen
         vlastníci FVE (Byt 1 + Byt 2, každý polovinu).</li>
-      <li><strong>+ Společná</strong> — podíl bytu (⅓) na spotřebě společných prostor: chodby,
-        sklep, čerpadlo, studna, akvárium… Nemají vlastní elektroměr, dopočítává se.</li>
+      <li><strong>+ Společná</strong> — podíl bytu (⅓) na spotřebě společných prostor
+        a garáže. Nemají vlastní elektroměr, dopočítává se.</li>
       <li><strong>+ Fix</strong> — podíl bytu (⅓) na stálých měsíčních platbách z faktury. Platí se
         i při nulové spotřebě — je to cena za přípojku, ne za elektřinu.</li>
       <li><strong>= Platba</strong> — výsledná částka za měsíc, včetně DPH 21 %.</li>
@@ -1271,7 +1271,7 @@ function demoCard(): HTMLElement {
     el('div', 'space-y-2', [
       p('📖 Jak číst, co vidíš:'),
       p('1) Dům za duben spotřeboval 1 756 kWh. Z toho 500 kWh dodalo slunce a baterie („FVE pokrytí“ — tuhle elektřinu nebylo potřeba koupit) a 1 256 kWh se koupilo ze sítě — přesně to, co je na faktuře.'),
-      p('2) Podle podružek v rozvaděči: Byt 1 spotřeboval 460 kWh, Byt 2 740 kWh, Byt 3 50 kWh. Zbylých 506 kWh jsou společné prostory — chodby, čerpadlo, studna, akvárium… („Společná spotřeba“, dělí se na třetiny).'),
+      p('2) Podle podružek v rozvaděči: Byt 1 spotřeboval 460 kWh, Byt 2 740 kWh, Byt 3 50 kWh. Zbylých 506 kWh jsou společné prostory a garáž („Společná spotřeba“, dělí se na třetiny).'),
       p('3) Co z toho plyne pro lidi: FVE za duben ušetřila 1 464 Kč. Byt 1 a Byt 2 fotovoltaiku vlastní (50/50), takže každý dostal slevu 631 Kč → Byt 1 platí 1 837 Kč, Byt 2 platí 2 844 Kč (spotřeboval víc). Byt 3 FVE nevlastní, slevu nedostává → 1 023 Kč (skoro celé je třetina fixů a společné spotřeby).'),
       p('4) Součet plateb 5 704 Kč ≈ faktura innogy 5 666 Kč — rozúčtování si tedy „sedí“ s realitou. Drobný rozdíl vysvětluje NAVOD.md.'),
       p('Ukázka obsahuje i počáteční odečet („bod nula“) k 1. 4. — proti němu se počítá dubnová spotřeba bytů; najdeš ho dole v Nastavení. Každá ⓘ ikonka níže vysvětluje, odkud které číslo vzít. Podrobný návod je pod tlačítkem 📖 Návod nahoře.'),
