@@ -2,6 +2,49 @@
 
 Jak projekt rozjet na počítači, kde ještě nic není. Počítá se s macOS; poznámka k Windows je na konci.
 
+## Rychlá cesta: nech to udělat agenta
+
+Stačí mít na počítači AI agenta (Codex nebo Claude Code) a ve složce Stažené zip s daty domu (`dum-RRRR-MM-DD.zip`). Agenta otevři v libovolné složce a vlož mu tenhle text. Sám zjistí, co chybí, řekne, co nainstalovat, stáhne projekt, rozbalí data a ověří, že všechno běží.
+
+````text
+Zprovozni mi na tomhle Macu projekt „FVE rozúčet". Postupuj po krocích a po každém mi krátce řekni, co jsi zjistil nebo udělal.
+
+1. Zjisti, co je nainstalované: `git --version`, `python3 --version`, `node --version` a jestli je ve složce /Applications Google Chrome nebo Microsoft Edge. Zatím nic neinstaluj.
+
+2. Co chybí, mi vypiš a řekni přesně, co mám udělat já (instalace chtějí moje potvrzení nebo heslo):
+   - chybí git nebo python3 → v Terminálu pustit `xcode-select --install` a potvrdit dialog
+   - chybí node nebo je starší než verze 20 → nainstalovat LTS instalátorem z https://nodejs.org
+   - chybí Chrome i Edge → nainstalovat Chrome
+   Počkej, až napíšu, že je hotovo, a pak to zkontroluj znovu.
+
+3. Stáhni projekt: `git clone https://github.com/janpodmolik/fve.git ~/Projekty/fve` (složku ~/Projekty vytvoř, když není). Repo je veřejné, účet na GitHubu není potřeba. Když už ~/Projekty/fve existuje, neklonuj znovu a udělej v ní jen `git pull`.
+
+4. Ve složce ~/Projekty/fve pusť `npm install`.
+
+5. Najdi zip s daty domu: soubor `dum-*.zip` ve složce ~/Downloads. Když jich je víc, vezmi nejnovější a řekni mi který. Když tam žádný není, zeptej se mě na cestu. Rozbal ho z ~/Projekty/fve příkazem `python3 scripts/balicek.py rozbal <cesta k zipu>`.
+
+6. Ověř, že všechno běží (z ~/Projekty/fve):
+   - `npm run rozuct`
+   - `npm run vyuctovani`
+   - `python3 dum/skripty/kontrola.py` (má skončit větou „Datové soubory spolu sedí.")
+   - `python3 dum/skripty/podklad-soused.py`
+   Pak otevři `dum/vystupy/podklad-soused.pdf` příkazem `open`.
+
+7. Přečti si `AGENTS.md` a `dum/AGENTS.md` a shrň mi ve čtyřech pěti větách, co o domě víš a co ve složce `dum/` je.
+
+Pravidla:
+- Nic necommituj a nepushuj.
+- Nic neinstaluj sám přes sudo a nestahuj ani nespouštěj instalační skripty z internetu. Instalace nech na mně podle kroku 2.
+- Mimo složku ~/Projekty/fve nic neměň a nemaž.
+- Když některý krok selže, zastav se a napiš mi přesnou chybu. Neobcházej ji.
+
+Až bude hotovo, řekni mi, ať si agenta příště otevřu přímo ve složce ~/Projekty/fve.
+````
+
+Účet na GitHubu k tomu není potřeba, repo je veřejné a nic se do něj neposílá. Po dokončení agenta zavři a příště ho otevři přímo ve složce `~/Projekty/fve`, aby si pokyny z `AGENTS.md` načetl sám.
+
+Zbytek tohohle souboru je tentýž postup ručně, pro případ, že by agent někde uvízl.
+
 ## Co je potřeba nainstalovat
 
 | Co | K čemu | Jak | Ověření |
