@@ -8,8 +8,9 @@
 
 import { readFileSync } from 'node:fs';
 import { importJson, consumptionFromReadings, type MonthlyRecord, type Baseline } from '../src/storage';
+import { defaultStatePath } from './paths';
 
-const path = process.argv[2] ?? 'data/marek.json';
+const path = process.argv[2] ?? defaultStatePath();
 const state = importJson(readFileSync(path, 'utf8'));
 
 const days = (from: string, to: string): number =>

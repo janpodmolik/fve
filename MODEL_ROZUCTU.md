@@ -1,9 +1,9 @@
 # Model rozúčtu FVE — logika výpočtu
 
 > Rozkresluje, jak appka spočítá rozúčet elektřiny mezi 3 byty.
-> Postaveno na reálných cenách z faktury innogy 04/2026 a rozhodnutích Honzy (6.6.2026).
+> Postaveno na reálných cenách z faktury innogy 04/2026 a na rozhodnutích z června 2026.
 > **Stav: IMPLEMENTOVÁNO** v [src/calc.ts](src/calc.ts) podle §4 + §5 (viz §8 — mapování na kód).
-> Návod k obsluze pro laika: [NAVOD.md](NAVOD.md). Otevřené body označené ⚠️ → doplní Marek.
+> Návod k obsluze pro laika: [NAVOD.md](NAVOD.md). Body označené ⚠️ jsou otevřené otázky dohody mezi vlastníky.
 
 ---
 
@@ -23,7 +23,7 @@
 viz §2.
 
 ### Konfigurace dohody (zadá se 1×)
-- `vlastníci_FVE` = [byt1 (Marek), byt2 (soused)] — kdo dostává FVE bonus a přetoky
+- `vlastníci_FVE` = [byt1, byt2] — kdo dostává FVE bonus a přetoky (kdo v kterém bytě bydlí, řeší soukromá složka `dum/`, ne tenhle dokument)
 - `podíly_FVE` = 50 / 50
 - `klíč_fixy` = rovným dílem na 3 byty (default)
 - `klíč_společná_spotřeba` = rovným dílem na 3 byty (default) ⚠️
@@ -51,7 +51,7 @@ viz §2.
 - `cena_NT = 2550 + 116,50 + 164,24 + 28,30 = ` **2 859,04 Kč/MWh ≈ 2,86 Kč/kWh** ✓ (sedí s fakturou)
 - `fixy_celkem = 127 + 896 + 12,87 = ` **1 035,87 Kč/měs**
 
-> Pozn.: appka může pracovat s/bez DPH — Marek je fyzická osoba, takže koncové částky pro byty počítáme **s DPH** (×1,21), protože tolik reálně platí.
+> Pozn.: appka může pracovat s/bez DPH — odběratel je fyzická osoba, takže koncové částky pro byty počítáme **s DPH** (×1,21), protože tolik reálně platí.
 
 ---
 
@@ -80,7 +80,7 @@ Z podružek: `byt[i].VT`, `byt[i].NT`.
 náklad_síť[i] = byt[i].VT × cena_VT + byt[i].NT × cena_NT
 ```
 To je „kdyby FVE nebyla". Tahle částka je férový základ — odráží, KDY byt spotřebovává
-(večerní VT špička stojí víc, proto soused s EV ve VT by platil víc).
+(večerní VT špička stojí víc, takže i spotřeba ve VT vyjde dráž).
 
 ### Krok C — FVE bonus (úspora) — JEN mezi vlastníky
 Celková úspora domu z FVE = energie z FVE × (cena, za kterou by se jinak koupila ze sítě).
@@ -93,19 +93,19 @@ Protože FVE typicky kryje hlavně NT (baterie přes den → večer), ale i VT, 
 Z úspory se nejdřív oddělí díl připadající na společnou spotřebu (§5) — ta ze slunce
 čerpá taky a její FVE díl zlevňuje společnou položku všem třem bytům. **Zbytek**
 (úspora připadající na byty) se NErozpouští přes všechny byty, ale jde podle
-rozhodnutí **jen vlastníkům FVE** (Marek + soused), kteří ji pořídili:
+rozhodnutí **jen vlastníkům FVE** (byt 1 + byt 2), kteří ji pořídili:
 ```
 úspora_bytů   = úspora_celkem × (Σ spotřeba bytů / spotřeba domu)
-bonus[Marek]  = úspora_bytů × 50 %
-bonus[soused] = úspora_bytů × 50 %
-byt3 (nájemník): bonus = 0  → platí plnou síťovou cenu
+bonus[byt1] = úspora_bytů × 50 %
+bonus[byt2] = úspora_bytů × 50 %
+byt3 (nevlastní FVE): bonus = 0  → platí plnou síťovou cenu
 ```
 
-⚠️ OTEVŘENÉ: Je „úspora" férově dělená 50/50, i když jeden vlastník (soused s EV) FVE
-fyzicky spotřebuje víc? Dvě filozofie:
-  (a) **50/50 podle vlastnictví** (= tvoje rozhodnutí) — vlastní investici dělí napůl bez ohledu na užití.
+⚠️ OTEVŘENÉ: Je „úspora" férově dělená 50/50, i když jeden vlastník FVE
+fyzicky spotřebuje víc (např. nabíjí elektroauto)? Dvě filozofie:
+  (a) **50/50 podle vlastnictví** (= zvolené řešení) — vlastní investici dělí napůl bez ohledu na užití.
   (b) **podle reálné spotřeby FVE** — kdo víc čerpal ze slunce/baterie, víc bonusu.
-→ Default (a). Appka umožní přepnout. Tohle je přesně to, co Marek řešil se sousedem a EV.
+→ Platí (a). Přepínač na (b) v appce není.
 
 ### Krok D — Měsíční fixy → rovným dílem na 3 byty
 ```
@@ -128,8 +128,8 @@ Výkup se zúčtovává 1× ročně (1.11.→31.10.), cena 900 Kč/MWh. Appka p�
 měsíčně jen **eviduje** (akumuluje kWh), a při ročním zúčtování:
 ```
 příjem_přetoky = Σ přetoky_rok × 900 Kč/MWh
-výplata[Marek]  = příjem_přetoky × 50 %
-výplata[soused] = příjem_přetoky × 50 %
+výplata[byt1] = příjem_přetoky × 50 %
+výplata[byt2] = příjem_přetoky × 50 %
 ```
 Žádná „kasa domu" (zatím nezřízena) → jde přímo dvěma vlastníkům.
 
@@ -152,9 +152,10 @@ náklad_společná = společná_kWh × cena_průměr (VT/NT poměr) − případ
 podíl_společné[i] = náklad_společná × klíč[i]   (default 1/3)
 ```
 
-⚠️ OTEVŘENÉ pro Marka:
-- Potvrdit, že společná větev opravdu visí jen na hlavním měřidle (žádná 4. podružka).
-- Klíč na společnou: rovným dílem na 3 byty? Nebo podle podílu spotřeby? (default 1/3)
+Společná větev nemá vlastní elektroměr. Dělí se rovným dílem mezi byty; byt vedený
+v daném období jako neobsazený (`vacant`) se na ní nepodílí (stálé platby platí dál).
+Na společné větvi jsou i garážové zásuvky. Spotřeba z nich se zatím dělí stejně jako
+ostatní společná spotřeba; samostatně půjde účtovat, až bude mít garáž vlastní měřák.
 
 > VYŘEŠENO (implementováno): společná spotřeba FVE bonus **dostává**. Úspora z FVE se
 > nejdřív rozdělí mezi (byty + společná) v poměru spotřeby; díl společné zlevní společnou
@@ -167,20 +168,22 @@ podíl_společné[i] = náklad_společná × klíč[i]   (default 1/3)
 ## 6. Co appka vyprodukuje
 - Tabulka na byt: spotřeba VT/NT, plný síťový náklad, FVE bonus, fix, společná, **výsledná platba**
 - Přehled přetoků po zúčtovacích letech (1.11.→31.10.) + výplaty vlastníkům
-- Tisk / PDF pro vyúčtování nájemníkovi bytu 3 (CSV zatím ne)
+- Tisk / PDF vyúčtování za měsíc; tabulky CSV a Markdown dělá `npm run vyuctovani`
 - Export/import JSON (záloha)
 - Kontroly konzistence vstupů (žlutý panel): součet bytů ≤ spotřeba domu, nákup ≤ spotřeba,
   výroba ≈ FVE pokrytí + přetoky (±25 %, zbytek dělá baterie a ztráty), stav podružky neklesá
 
 ---
 
-## 7. Otevřené body pro Marka (shrnutí ⚠️)
-1. **Společná spotřeba** — měří 3 podružky celý dům, nebo jdou chodby/sklep mimo? (ověřit u rozvaděče)
-2. **VT/NT na podružkách** — ukazují displeje CIT 372L dva registry (T1/T2), nebo jen součet?
-3. **FVE bonus 50/50 vs podle reálné spotřeby** — filozofická volba (default 50/50 dle vlastnictví)
-4. **Fixy** — rovným dílem na 3 byty OK? (default ano)
-5. **Interní cena solární elektřiny pro byt 3 (nájemník)** — platí nájemník plnou síťovou cenu,
-   nebo zvýhodněnou „solární"? (zatím: plnou, bonus = 0)
+## 7. Otevřené body dohody (shrnutí ⚠️)
+1. **FVE bonus 50/50 vs podle reálné spotřeby** — volba vlastníků (platí 50/50 podle vlastnictví).
+2. **Stálé platby** — rovným dílem na 3 byty (platí; alternativa by byla podle jističe nebo podílu).
+3. **Cena solární elektřiny pro byt, který FVE nevlastní** — platí plnou síťovou cenu, bonus = 0.
+4. **Garáž jako samostatně měřená jednotka** — až bude měřák; včetně toho, za kolik účtovat
+   energii z přebytků a za kolik energii ze sítě.
+
+Vyřešeno dřív: společná větev jde mimo podružky a nemá vlastní elektroměr; podružky CIT 372L
+mají dva registry (T1/T2).
 
 ---
 

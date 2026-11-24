@@ -8,6 +8,10 @@ Data jen v prohlížeči (localStorage), žádný backend.
   Tentýž návod je i **přímo v appce** pod tlačítkem 📖 Návod (`renderHelp()` v main.ts — udržovat v souladu)
 - [MODEL_ROZUCTU.md](MODEL_ROZUCTU.md) — logika výpočtu, ceník, otevřené dohody, mapování na kód
 
+**Instalace na novém počítači:** [INSTALACE.md](INSTALACE.md).
+**Pro AI agenty:** [AGENTS.md](AGENTS.md) — jak je repo uspořádané, příkazy a pravidla.
+Soukromá data konkrétního domu žijí mimo git ve složce `dum/` (viz AGENTS.md).
+
 ## Nástroje
 Vite + TypeScript (bez frameworku) + Tailwind v4. Výpočetní jádro je čistý TS modul
 ([src/calc.ts](src/calc.ts)), takže jde testovat i znovupoužít.
@@ -18,6 +22,8 @@ npm install
 npm run dev      # lokální dev server s živým reloadem
 npm test         # testy výpočetního jádra (vitest)
 npm run build    # produkční build do dist/ (pro GitHub Pages)
+npm run rozuct      # rozúčet ze zálohy appky do terminálu (výchozí dum/data/appka.json)
+npm run vyuctovani  # totéž do tabulek CSV + Markdown (dum/vystupy/)
 ```
 
 ## Jak to funguje

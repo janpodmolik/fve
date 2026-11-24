@@ -1,16 +1,18 @@
 // === CLI výpočet rozúčtu z lokálního JSON ===
-// Načte data/marek.json (stejný formát jako záloha z appky), spočítá rozúčet
-// za každý zaznamenaný měsíc a vypíše ho do terminálu.
+// Načte zálohu appky (výchozí: dum/data/appka.json), spočítá rozúčet za každý
+// zaznamenaný měsíc a vypíše ho do terminálu.
 //
-//   npx vite-node scripts/rozuct.ts
+//   npm run rozuct
+//   npx vite-node scripts/rozuct.ts <zaloha.json>
 //
-// Data v data/ jsou gitignorovaná — Markovy odečty nepatří do public repa.
+// Data domu jsou mimo git (složka dum/) — odečty nepatří do veřejného repa.
 
 import { readFileSync } from 'node:fs';
 import { calculateBilling, agreementFor, checkConsistency, pricesPerMWh, feedInByYear, splitPvShares } from '../src/calc';
 import { importJson, consumptionFromReadings, previousReadings } from '../src/storage';
+import { defaultStatePath } from './paths';
 
-const path = process.argv[2] ?? 'data/marek.json';
+const path = process.argv[2] ?? defaultStatePath();
 const state = importJson(readFileSync(path, 'utf8'));
 
 const czk = (x: number) => `${x.toLocaleString('cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Kč`;
@@ -55,7 +57,7 @@ state.records.forEach((rec) => {
     kwh(r.offPeak),
     kwh(r.consumption),
     czk(r.gridCost),
-    `−${czk(r.pvBonus)}`,
+    r.pvBonus ? `−${czk(r.pvBonus)}` : '—',
     czk(r.common),
     czk(r.fixed),
     czk(r.total),

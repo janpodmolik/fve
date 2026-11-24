@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "rozuct": "node --no-deprecation node_modules/vite-node/vite-node.mjs scripts/rozuct.ts",
+    "vyuctovani": "node --no-deprecation node_modules/vite-node/vite-node.mjs scripts/vyuctovani.ts",
+    "diagnostika": "node --no-deprecation node_modules/vite-node/vite-node.mjs scripts/diagnostika.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

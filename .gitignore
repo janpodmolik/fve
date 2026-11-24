@@ -3,5 +3,8 @@ dist
 *.local
 .DS_Store
 
-# Markova reálná data (odečty, SEMS+) — nepatří do public repa
+# Soukromá data domu (odečty, SEMS, podklady, komunikace) — nepatří do veřejného repa.
+# dum/ je předávaná složka (viz AGENTS.md), predani/ jsou zipy k odeslání, data/ starší pracovní složka.
+dum/
+predani/
 data/
